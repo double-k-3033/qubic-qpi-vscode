@@ -1,0 +1,75 @@
+{
+  "name": "qubic-qpi",
+  "displayName": "Qubic QPI Language Support",
+  "description": "Language support for Qubic Smart Contracts (QPI)",
+  "version": "0.1.0",
+  "publisher": "qubic",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:qpi",
+    "onLanguage:cpp"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "qpi",
+        "aliases": [
+          "Qubic QPI",
+          "qpi"
+        ],
+        "extensions": [
+          ".h"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qpi",
+        "scopeName": "source.qpi",
+        "path": "./syntaxes/qpi.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "qpi",
+        "path": "./snippets/qpi.code-snippets"
+      },
+      {
+        "language": "cpp",
+        "path": "./snippets/qpi.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "qubic.newContract",
+        "title": "Qubic: New Smart Contract",
+        "category": "Qubic"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qubic/qubic-qpi-vscode"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "typescript": "^5.3.3"
+  }
+}

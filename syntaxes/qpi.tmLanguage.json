@@ -1,0 +1,162 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Qubic QPI",
+  "scopeName": "source.qpi",
+  "fileTypes": [".h"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#preprocessor-invalid" },
+    { "include": "#qpi-macros" },
+    { "include": "#qpi-types" },
+    { "include": "#qpi-functions" },
+    { "include": "#division-warning" },
+    { "include": "#cpp-keywords" },
+    { "include": "#numbers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.qpi",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.qpi",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.qpi",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.qpi",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.qpi",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.qpi",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "preprocessor-invalid": {
+      "comment": "Warn on standard C++ #include directives — not recommended in QPI contracts",
+      "patterns": [
+        {
+          "name": "invalid.deprecated.preprocessor.qpi",
+          "match": "^\\s*#include\\s*[<\"].*[>\"]",
+          "captures": {
+            "0": {
+              "name": "invalid.deprecated.preprocessor.qpi"
+            }
+          }
+        },
+        {
+          "name": "meta.preprocessor.qpi",
+          "match": "^\\s*#(define|undef|ifdef|ifndef|if|else|elif|endif|pragma)\\b.*$",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.qpi"
+            }
+          }
+        }
+      ]
+    },
+    "qpi-macros": {
+      "comment": "QPI control macros / procedure-function block delimiters",
+      "patterns": [
+        {
+          "name": "keyword.control.qpi",
+          "match": "\\b(PUBLIC_PROCEDURE_WITH_LOCALS|PUBLIC_FUNCTION_WITH_LOCALS|PUBLIC_PROCEDURE|PUBLIC_FUNCTION|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|REGISTER_USER_FUNCTIONS_AND_PROCEDURES)\\b"
+        }
+      ]
+    },
+    "qpi-types": {
+      "comment": "QPI built-in types and data structures",
+      "patterns": [
+        {
+          "name": "storage.type.qpi",
+          "match": "\\b(id|sint64|uint64|sint32|uint32|sint16|uint16|sint8|uint8|bit|Array|BitArray|collection|Asset|Entity)\\b"
+        }
+      ]
+    },
+    "qpi-functions": {
+      "comment": "QPI API functions accessible via the qpi object",
+      "patterns": [
+        {
+          "name": "support.function.qpi",
+          "match": "\\bqpi\\.(invocator|originator|transfer|burn|K12|issueAsset|transferShareOwnershipAndPossession|tick|epoch|year|month|day|hour|minute|second)\\b"
+        },
+        {
+          "name": "support.function.qpi",
+          "match": "\\bqpi\\b"
+        }
+      ]
+    },
+    "division-warning": {
+      "comment": "Flag raw '/' operator outside strings — use div() instead in QPI",
+      "patterns": [
+        {
+          "name": "invalid.illegal.raw-division.qpi",
+          "match": "(?<![=!<>/])\\s*/\\s*(?![/*=])"
+        }
+      ]
+    },
+    "cpp-keywords": {
+      "comment": "Standard C++ keywords still valid inside QPI contracts",
+      "patterns": [
+        {
+          "name": "keyword.control.cpp",
+          "match": "\\b(if|else|for|while|do|switch|case|break|continue|return|goto|default)\\b"
+        },
+        {
+          "name": "storage.modifier.cpp",
+          "match": "\\b(const|static|inline|volatile|explicit|friend|virtual|override|final)\\b"
+        },
+        {
+          "name": "storage.type.cpp",
+          "match": "\\b(void|bool|char|int|long|short|float|double|unsigned|signed|struct|class|enum|union|auto|namespace|template|typename|using|typedef)\\b"
+        },
+        {
+          "name": "keyword.operator.cpp",
+          "match": "\\b(sizeof|alignof|decltype|noexcept|nullptr|true|false|this|new|delete|operator)\\b"
+        },
+        {
+          "name": "keyword.control.access.cpp",
+          "match": "\\b(public|private|protected)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.qpi",
+          "match": "\\b0[xX][0-9a-fA-F]+[uUlL]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.qpi",
+          "match": "\\b[0-9]+[uUlL]*\\b"
+        },
+        {
+          "name": "constant.numeric.float.qpi",
+          "match": "\\b[0-9]+\\.[0-9]*([eE][+-]?[0-9]+)?[fFlL]?\\b"
+        }
+      ]
+    }
+  }
+}
