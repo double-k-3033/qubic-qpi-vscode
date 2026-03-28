@@ -166,7 +166,10 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 
 ### Phase 3 - Power
 - [ ] Dev Kit integration (deploy to testnet)
-- [ ] Contract validator
+
+  > **Note for contributors:** This feature requires a stable Qubic CLI or REST API that allows contract developers to deploy `.h` files to the Qubic testnet directly from VS Code. As of 2026-03, no such public API exists for contract developers — [qubic-cli](https://github.com/qubic/qubic-cli) is targeted at node operators, not smart contract authors. If you know of an official deploy API or Dev Kit, please open an issue or contact the publisher.
+
+- [x] Contract validator
 
 ## Marketplace
 
