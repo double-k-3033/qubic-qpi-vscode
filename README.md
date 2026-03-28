@@ -34,8 +34,11 @@ The extension analyses `.h` files that contain QPI keywords and reports:
 | `QPI001` | Warning | `#include` directive found — not allowed in QPI contracts |
 | `QPI002` | Warning | Raw `/` division operator — use `div(a, b)` instead |
 | `QPI003` | Error | Raw `%` modulo operator — use `mod(a, b)` instead |
+| `QPI010` | Error | `BEGIN_EPOCH` block is missing its closing `END_EPOCH` |
+| `QPI011` | Error | `BEGIN_TICK` block is missing its closing `END_TICK` |
+| `QPI012` | Warning | `PUBLIC_PROCEDURE` / `PUBLIC_FUNCTION` declared but not registered |
 
-The linter runs on file open, save, and every keystroke.
+The linter and validator run on file open, save, and every keystroke.
 
 ### Command: New Smart Contract
 **Command palette:** `Qubic: New Smart Contract`
@@ -95,6 +98,63 @@ The linter activates automatically for `.h` files that contain QPI keywords. Pro
 | `QPI001` | Yellow (Warning) | Remove `#include` — use QPI built-ins instead |
 | `QPI002` | Yellow (Warning) | Replace `/` with `div(a, b)` |
 | `QPI003` | Red (Error) | Replace `%` with `mod(a, b)` |
+| `QPI010` | Red (Error) | Add missing `END_EPOCH` after `BEGIN_EPOCH` |
+| `QPI011` | Red (Error) | Add missing `END_TICK` after `BEGIN_TICK` |
+| `QPI012` | Yellow (Warning) | Register the procedure/function (see Section 7) |
+
+### 7. Contract Validator
+
+The **Contract Validator** checks the overall structure of a QPI contract and catches mistakes that the line-level linter cannot see.
+
+**QPI010 — Missing `END_EPOCH`**
+
+Every `BEGIN_EPOCH` block must be closed with `END_EPOCH`. If the closing macro is absent the contract will not compile inside the Qubic node.
+
+```cpp
+// Wrong — triggers QPI010
+BEGIN_EPOCH
+{
+}
+// END_EPOCH  ← missing
+
+// Correct
+BEGIN_EPOCH
+{
+}
+END_EPOCH
+```
+
+**QPI011 — Missing `END_TICK`**
+
+Same rule as QPI010, but for tick hooks.
+
+```cpp
+// Correct
+BEGIN_TICK
+{
+}
+END_TICK
+```
+
+**QPI012 — Unregistered procedure or function**
+
+Every `PUBLIC_PROCEDURE` and `PUBLIC_FUNCTION` you declare must be listed inside the `REGISTER_USER_FUNCTIONS_AND_PROCEDURES` block. Omitting the registration means the Qubic network will never call your entry point.
+
+```cpp
+// Declaration (triggers QPI012 if not registered below)
+PUBLIC_PROCEDURE(Transfer)
+{
+    // ...
+}
+
+// Registration block — Transfer must appear here
+REGISTER_USER_FUNCTIONS_AND_PROCEDURES
+{
+    REGISTER_USER_PROCEDURE(Transfer, 1);   // ← required
+}
+```
+
+The index (`1`, `2`, …) is the call index used by clients to invoke the entry point. Each entry point needs a unique index.
 
 ---
 

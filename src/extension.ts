@@ -371,7 +371,34 @@ function lintDocument(document: vscode.TextDocument): void {
         checkRawModulo(stripped, lineIndex, diagnostics);
     }
 
+    // ----------------------------------------------------------------
+    // Contract-level validation (whole-document rules)
+    // ----------------------------------------------------------------
+    validateContract(document, text, diagnostics);
+
     diagnosticCollection.set(document.uri, diagnostics);
+}
+
+// ---------------------------------------------------------------------------
+// validateContract — whole-document structural checks
+// ---------------------------------------------------------------------------
+function validateContract(
+    document: vscode.TextDocument,
+    text: string,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    // ----------------------------------------------------------------
+    // Rule 4 (Error): BEGIN_EPOCH without END_EPOCH
+    // Rule 5 (Error): BEGIN_TICK without END_TICK
+    // ----------------------------------------------------------------
+    checkBlockBalance(document, text, 'BEGIN_EPOCH', 'END_EPOCH', 'QPI010', diagnostics);
+    checkBlockBalance(document, text, 'BEGIN_TICK', 'END_TICK', 'QPI011', diagnostics);
+
+    // ----------------------------------------------------------------
+    // Rule 6 (Warning): PUBLIC_PROCEDURE / PUBLIC_FUNCTION declared but
+    // not registered in REGISTER_USER_FUNCTIONS_AND_PROCEDURES
+    // ----------------------------------------------------------------
+    checkUnregisteredEntrypoints(document, text, diagnostics);
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +501,110 @@ function checkRawModulo(
         );
         diagnostic.source = 'qubic-qpi';
         diagnostic.code = 'QPI003';
+        diagnostics.push(diagnostic);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkBlockBalance — ensures an opening macro has a matching closing macro
+// e.g. BEGIN_EPOCH must be paired with END_EPOCH (QPI010)
+//      BEGIN_TICK  must be paired with END_TICK  (QPI011)
+// ---------------------------------------------------------------------------
+function checkBlockBalance(
+    document: vscode.TextDocument,
+    text: string,
+    openKeyword: string,
+    closeKeyword: string,
+    code: string,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    const openRegex = new RegExp(`\\b${openKeyword}\\b`, 'g');
+    const closeRegex = new RegExp(`\\b${closeKeyword}\\b`, 'g');
+
+    const openCount = (text.match(openRegex) ?? []).length;
+    const closeCount = (text.match(closeRegex) ?? []).length;
+
+    if (openCount === closeCount) {
+        return;
+    }
+
+    // Find the line of the first unmatched opening keyword to anchor the diagnostic
+    for (let i = 0; i < document.lineCount; i++) {
+        const lineText = document.lineAt(i).text;
+        if (new RegExp(`\\b${openKeyword}\\b`).test(lineText)) {
+            const col = lineText.indexOf(openKeyword);
+            const range = new vscode.Range(i, col, i, col + openKeyword.length);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                openCount > closeCount
+                    ? `'${openKeyword}' block is missing its closing '${closeKeyword}'.`
+                    : `'${closeKeyword}' found without a matching '${openKeyword}'.`,
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = code;
+            diagnostics.push(diagnostic);
+            break;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkUnregisteredEntrypoints — QPI012
+// Every PUBLIC_PROCEDURE(Name) and PUBLIC_FUNCTION(Name) must appear in
+// REGISTER_USER_PROCEDURE(Name, ...) or REGISTER_USER_FUNCTION(Name, ...)
+// ---------------------------------------------------------------------------
+function checkUnregisteredEntrypoints(
+    document: vscode.TextDocument,
+    text: string,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    // Collect all declared entrypoint names with their line positions
+    const declaredRegex = /\bPUBLIC_(?:PROCEDURE|FUNCTION)(?:_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/g;
+    const declared = new Map<string, number>(); // name → lineIndex
+    let match: RegExpExecArray | null;
+
+    while ((match = declaredRegex.exec(text)) !== null) {
+        const name = match[1];
+        if (!declared.has(name)) {
+            const lineIndex = document.positionAt(match.index).line;
+            declared.set(name, lineIndex);
+        }
+    }
+
+    if (declared.size === 0) {
+        return;
+    }
+
+    // Collect all registered names
+    const registeredRegex = /\bREGISTER_USER_(?:PROCEDURE|FUNCTION)\s*\(\s*(\w+)\s*,/g;
+    const registered = new Set<string>();
+
+    while ((match = registeredRegex.exec(text)) !== null) {
+        registered.add(match[1]);
+    }
+
+    // Flag each declared name that is not registered
+    for (const [name, lineIndex] of declared) {
+        if (registered.has(name)) {
+            continue;
+        }
+
+        const lineText = document.lineAt(lineIndex).text;
+        const col = lineText.indexOf(name);
+        const range = new vscode.Range(
+            lineIndex,
+            col >= 0 ? col : 0,
+            lineIndex,
+            col >= 0 ? col + name.length : lineText.length,
+        );
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            `'${name}' is declared but never registered. Add REGISTER_USER_PROCEDURE(${name}, <index>) or REGISTER_USER_FUNCTION(${name}, <index>) inside REGISTER_USER_FUNCTIONS_AND_PROCEDURES.`,
+            vscode.DiagnosticSeverity.Warning,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI012';
         diagnostics.push(diagnostic);
     }
 }
