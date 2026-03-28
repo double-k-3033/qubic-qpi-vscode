@@ -33,6 +33,7 @@ The extension analyses `.h` files that contain QPI keywords and reports:
 |---|---|---|
 | `QPI001` | Warning | `#include` directive found — not allowed in QPI contracts |
 | `QPI002` | Warning | Raw `/` division operator — use `div(a, b)` instead |
+| `QPI003` | Error | Raw `%` modulo operator — use `mod(a, b)` instead |
 
 The linter runs on file open, save, and every keystroke.
 
@@ -105,9 +106,9 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 - [x] "New Qubic SC" template command
 
 ### Phase 2 - Comfort
-- [ ] IntelliSense for all `qpi.*` functions
-- [ ] Hover documentation
-- [ ] Error squiggles (red underline for harder violations)
+- [x] IntelliSense for all `qpi.*` functions
+- [x] Hover documentation
+- [x] Error squiggles (red underline for harder violations)
 
 ### Phase 3 - Power
 - [ ] Dev Kit integration (deploy to testnet)
