@@ -75,7 +75,7 @@ The linter flags raw `/` but does **not** flag `div()` or `mod()` — they are t
 
 ## Screenshot
 
-> _Screenshot placeholder — add an image of syntax highlighting here._
+![Qubic QPI Language Support](images/screenshot.png)
 
 ---
 

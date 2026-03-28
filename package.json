@@ -1,8 +1,8 @@
 {
-  "name": "qubic-qpi",
-  "displayName": "Qubic QPI Language Support",
+  "name": "qubic-org-qpi",
+  "displayName": "Qubic Programming Interface (QPI) Language Support",
   "description": "Language support for Qubic Smart Contracts (QPI)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "AndyQus",
   "engines": {
     "vscode": "^1.85.0"
@@ -60,6 +60,7 @@
     "type": "git",
     "url": "https://github.com/AndyQus/qubic-qpi-vscode"
   },
+  "icon": "icon.png",
   "license": "Apache-2.0",
   "scripts": {
     "compile": "tsc -p ./",
