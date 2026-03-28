@@ -113,6 +113,12 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 - [ ] Dev Kit integration (deploy to testnet)
 - [ ] Contract validator
 
+## Marketplace
+
+[Qubic QPI Language Support – VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AndyQus.qubic-org-qpi)
+
+---
+
 ## Sources
 - [QPI Documentation](https://docs.qubic.org/developers/qpi/)
 - [Unofficial SC Guide](https://medium.com/@qsilver97/an-unofficial-guide-to-writing-qubic-smart-contracts-sc-774541a88610)
