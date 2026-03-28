@@ -44,6 +44,60 @@ Prompts for a contract name, generates a `.h` file with a complete QPI skeleton,
 
 ---
 
+## Usage Guide
+
+### 1. Install the Extension
+
+Search for **"Qubic QPI Language Support"** in the VS Code Extensions panel (`Ctrl+Shift+X`) or install directly from the [Marketplace](https://marketplace.visualstudio.com/items?itemName=AndyQus.qubic-org-qpi).
+
+### 2. Create a New Smart Contract
+
+Open the Command Palette (`Ctrl+Shift+P`) and run:
+
+```
+Qubic: New Smart Contract
+```
+
+Enter a contract name (letters, digits, underscores). The extension creates a ready-to-use `.h` file with a complete QPI skeleton and opens it in the editor.
+
+### 3. IntelliSense for `qpi.*`
+
+While editing any `.h` file that contains QPI keywords, type `qpi.` to get an autocomplete list of all available API methods. Each entry shows the full signature, return type, and a description. Tab stops let you fill in arguments quickly.
+
+![IntelliSense example: type qpi. and pick from the list](images/screenshot.png)
+
+### 4. Hover Documentation
+
+Hover over any `qpi.*` call or QPI keyword (`PUBLIC_PROCEDURE`, `BEGIN_EPOCH`, etc.) to see inline documentation — signature, return type, and a usage description — without leaving the editor.
+
+### 5. Code Snippets
+
+Type one of the snippet prefixes and press `Tab`:
+
+| Prefix | What it inserts |
+|---|---|
+| `qpi-contract` | Complete contract skeleton |
+| `qpi-procedure` | `PUBLIC_PROCEDURE` block |
+| `qpi-function` | `PUBLIC_FUNCTION` block |
+| `qpi-procedure-locals` | `PUBLIC_PROCEDURE_WITH_LOCALS` block |
+| `qpi-function-locals` | `PUBLIC_FUNCTION_WITH_LOCALS` block |
+| `qpi-epoch` | `BEGIN_EPOCH` / `END_EPOCH` block |
+| `qpi-tick` | `BEGIN_TICK` / `END_TICK` block |
+
+Snippets work in both `qpi` and `cpp` language modes.
+
+### 6. Linter Warnings and Errors
+
+The linter activates automatically for `.h` files that contain QPI keywords. Problems appear in the **Problems** panel (`Ctrl+Shift+M`) and as coloured underlines in the editor:
+
+| Code | Colour | What to do |
+|---|---|---|
+| `QPI001` | Yellow (Warning) | Remove `#include` — use QPI built-ins instead |
+| `QPI002` | Yellow (Warning) | Replace `/` with `div(a, b)` |
+| `QPI003` | Red (Error) | Replace `%` with `mod(a, b)` |
+
+---
+
 ## QPI-Specific Rules
 
 ### No `#include`
