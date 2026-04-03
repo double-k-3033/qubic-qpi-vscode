@@ -300,7 +300,12 @@ export function deactivate(): void {
 // isQpiDocument — true when the document looks like a QPI contract
 // ---------------------------------------------------------------------------
 function isQpiDocument(document: vscode.TextDocument): boolean {
-    return document.fileName.endsWith('.h') && QPI_CONTRACT_REGEX.test(document.getText());
+    if (!document.fileName.endsWith('.h')) {
+        return false;
+    }
+    // Strip comments before checking so that a comment like
+    // "// does not inherit ContractBase" never activates linting.
+    return QPI_CONTRACT_REGEX.test(stripAllComments(document.getText()));
 }
 
 // ---------------------------------------------------------------------------
@@ -341,17 +346,17 @@ function lintDocument(document: vscode.TextDocument): void {
 
     const text = document.getText();
 
+    // Strip all comments first so comments like "// not a ContractBase file"
+    // do not cause linting to fire. Positions are preserved (spaces replace content).
+    const strippedText = stripAllComments(text);
+
     // Skip files that do not inherit from ContractBase — not a smart contract
-    if (!QPI_CONTRACT_REGEX.test(text)) {
+    if (!QPI_CONTRACT_REGEX.test(strippedText)) {
         diagnosticCollection.delete(document.uri);
         return;
     }
 
     const diagnostics: vscode.Diagnostic[] = [];
-
-    // Strip all comments from the full text for document-level rules.
-    // Positions are preserved (content replaced with spaces, newlines kept).
-    const strippedText = stripAllComments(text);
 
     // Collect struct/enum/class/namespace names for scope-operator check
     const definedNames = new Set<string>();
@@ -778,7 +783,7 @@ function checkCharLiteral(
 }
 
 // ---------------------------------------------------------------------------
-// checkRawDivision — QPI002 Warning
+// checkRawDivision — QPI002 Error
 // ---------------------------------------------------------------------------
 function checkRawDivision(
     stripped: string,
@@ -1066,13 +1071,17 @@ const PROHIBITED_KEYWORD_MESSAGES: Record<string, string> = {
     QpiContext: "'QpiContext' is prohibited in QPI contracts.",
 };
 
+// Pre-compiled patterns — avoids recompiling the same regex on every line.
+const PROHIBITED_KEYWORD_PATTERNS: Array<[string, string]> =
+    Object.keys(PROHIBITED_KEYWORD_MESSAGES).map((kw) => [kw, `\\b${kw}\\b`] as [string, string]);
+
 function checkProhibitedKeywords(
     stripped: string,
     lineIndex: number,
     diagnostics: vscode.Diagnostic[],
 ): void {
-    for (const kw of Object.keys(PROHIBITED_KEYWORD_MESSAGES)) {
-        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+    for (const [kw, pattern] of PROHIBITED_KEYWORD_PATTERNS) {
+        const regex = new RegExp(pattern, 'g');
         let match: RegExpExecArray | null;
 
         while ((match = regex.exec(stripped)) !== null) {
@@ -1096,13 +1105,17 @@ function checkProhibitedKeywords(
 // ---------------------------------------------------------------------------
 const NATIVE_INTEGER_KEYWORDS = ['int', 'char', 'short', 'long', 'bool', 'signed', 'unsigned'];
 
+// Pre-compiled patterns — avoids recompiling the same regex on every line.
+const NATIVE_INTEGER_KEYWORD_PATTERNS: Array<[string, string]> =
+    NATIVE_INTEGER_KEYWORDS.map((kw) => [kw, `\\b${kw}\\b`] as [string, string]);
+
 function checkNativeIntegerKeywords(
     stripped: string,
     lineIndex: number,
     diagnostics: vscode.Diagnostic[],
 ): void {
-    for (const kw of NATIVE_INTEGER_KEYWORDS) {
-        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+    for (const [kw, pattern] of NATIVE_INTEGER_KEYWORD_PATTERNS) {
+        const regex = new RegExp(pattern, 'g');
         let match: RegExpExecArray | null;
 
         while ((match = regex.exec(stripped)) !== null) {
