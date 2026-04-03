@@ -207,37 +207,31 @@ function collectDiagnostics(content) {
 
 // ── Copied logic (mirrors extension.ts exactly) ──────────────────────────
 
-// stripStringsAndCommentsStateful — handles // line comments, /* */ block comments,
-// and string/char literals. Accepts and returns block-comment state for multi-line use.
-function stripStringsAndCommentsStateful(line, inBlock) {
+function stripStringsAndComments(line) {
     let result = '';
     let i = 0;
     while (i < line.length) {
-        if (inBlock) {
-            if (line[i] === '*' && line[i + 1] === '/') { result += '  '; i += 2; inBlock = false; }
-            else { result += ' '; i++; }
-            continue;
+        if (line[i] === '/' && line[i + 1] === '/') {
+            result += ' '.repeat(line.length - i);
+            break;
         }
-        if (line[i] === '/' && line[i + 1] === '/') { result += ' '.repeat(line.length - i); break; }
-        if (line[i] === '/' && line[i + 1] === '*') { result += '  '; i += 2; inBlock = true; continue; }
         if (line[i] === '"') {
             const start = i; i++;
             while (i < line.length && line[i] !== '"') { if (line[i] === '\\') i++; i++; }
-            i++; result += ' '.repeat(i - start); continue;
+            i++;
+            result += ' '.repeat(i - start);
+            continue;
         }
         if (line[i] === "'") {
             const start = i; i++;
             while (i < line.length && line[i] !== "'") { if (line[i] === '\\') i++; i++; }
-            i++; result += ' '.repeat(i - start); continue;
+            i++;
+            result += ' '.repeat(i - start);
+            continue;
         }
         result += line[i]; i++;
     }
-    return { result, inBlockComment: inBlock };
-}
-
-// Single-line convenience wrapper (no block-comment state)
-function stripStringsAndComments(line) {
-    return stripStringsAndCommentsStateful(line, false).result;
+    return result;
 }
 
 function countBraceDelta(s) {
@@ -262,29 +256,136 @@ function isQpiHIncludeLine(commentFree) {
     return /^#\s*include\s*["<]qpi\.h[">]/.test(commentFree.trim());
 }
 
+// Mirrors extension.ts contract detection (stripAllComments + stripStrings + regex)
+function stripAllCommentsGate(text) {
+    let result = '';
+    let i = 0;
+    let inBlock = false;
+    while (i < text.length) {
+        if (inBlock) {
+            if (text[i] === '*' && text[i + 1] === '/') {
+                result += '  ';
+                i += 2;
+                inBlock = false;
+            } else {
+                result += text[i] === '\n' ? '\n' : ' ';
+                i++;
+            }
+            continue;
+        }
+        if (text[i] === '/' && text[i + 1] === '*') {
+            result += '  ';
+            i += 2;
+            inBlock = true;
+            continue;
+        }
+        if (text[i] === '/' && text[i + 1] === '/') {
+            while (i < text.length && text[i] !== '\n') {
+                result += ' ';
+                i++;
+            }
+            continue;
+        }
+        if (text[i] === '"') {
+            result += text[i];
+            i++;
+            while (i < text.length && text[i] !== '"' && text[i] !== '\n') {
+                if (text[i] === '\\') {
+                    result += text[i];
+                    i++;
+                }
+                result += text[i];
+                i++;
+            }
+            if (i < text.length && text[i] === '"') {
+                result += text[i];
+                i++;
+            }
+            continue;
+        }
+        if (text[i] === "'") {
+            result += text[i];
+            i++;
+            while (i < text.length && text[i] !== "'" && text[i] !== '\n') {
+                if (text[i] === '\\') {
+                    result += text[i];
+                    i++;
+                }
+                result += text[i];
+                i++;
+            }
+            if (i < text.length && text[i] === "'") {
+                result += text[i];
+                i++;
+            }
+            continue;
+        }
+        result += text[i];
+        i++;
+    }
+    return result;
+}
+
+function stripStringsGate(line) {
+    let result = '';
+    let i = 0;
+    while (i < line.length) {
+        if (line[i] === '"') {
+            const start = i;
+            i++;
+            while (i < line.length && line[i] !== '"') {
+                if (line[i] === '\\') i++;
+                i++;
+            }
+            i++;
+            result += ' '.repeat(i - start);
+            continue;
+        }
+        if (line[i] === "'") {
+            const start = i;
+            i++;
+            while (i < line.length && line[i] !== "'") {
+                if (line[i] === '\\') i++;
+                i++;
+            }
+            i++;
+            result += ' '.repeat(i - start);
+            continue;
+        }
+        result += line[i];
+        i++;
+    }
+    return result;
+}
+
+const QPI_CONTRACT_DECLARATION_REGEX =
+    /\b(?:struct|class)\s+[A-Za-z_]\w*(?:\s+final)?\s*:\s*(?:(?:public|protected|private)\s+)?ContractBase\b/;
+
+function looksLikeQpiContractText(content) {
+    return QPI_CONTRACT_DECLARATION_REGEX.test(stripStringsGate(stripAllCommentsGate(content)));
+}
+
 function diagsForText(content) {
     const lines = content.split('\n');
     const diagnostics = [];
 
-    // Same gate as extension.ts lintDocument (ContractBase inheritance)
-    if (!/\bContractBase\b/.test(content)) return diagnostics;
+    // Same gate as extension.ts lintDocument / isQpiDocument
+    if (!looksLikeQpiContractText(content)) return diagnostics;
 
     let braceDepth = 0;
 
-    let inBlockComment = false;
-
     for (let li = 0; li < lines.length; li++) {
         const lineText = lines[li];
-        const { result: stripped, inBlockComment: nextCBC } =
-            stripStringsAndCommentsStateful(lineText, inBlockComment);
-        inBlockComment = nextCBC;
+        const stripped = stripStringsAndComments(lineText);
         const braceDepthAtLineStart = braceDepth;
 
-        // QPI001 — any # except #include "qpi.h" / <qpi.h>
-        if (/^\s*#/.test(stripped)) {
-            if (!isQpiHIncludeLine(lineText)) {
-                diagnostics.push({ code: 'QPI001', line: li, severity: DiagnosticSeverity.Warning });
-            }
+        // QPI001 — #include qpi.h: Warning; any other #: Error
+        if (/^\s*#/.test(lineText)) {
+            diagnostics.push({
+                code: 'QPI001',
+                line: li,
+                severity: isQpiHIncludeLine(lineText) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+            });
             braceDepth += countBraceDelta(stripped);
             continue;
         }
@@ -383,27 +484,55 @@ BEGIN_TICK
 END_TICK
 }`;
 
+const CONTRACT_WRAPPER_PREFIX = `struct T : public ContractBase
+{
+`;
+const CONTRACT_WRAPPER_SUFFIX = `
+}`;
+
+function wrapAsContract(body) {
+    return CONTRACT_WRAPPER_PREFIX + body + CONTRACT_WRAPPER_SUFFIX;
+}
+
 section('Non-QPI files are ignored');
 assert(diagsForText('int x = 1 / 2;').length === 0,
     'Plain C++ without ContractBase → no diagnostics');
+assert(diagsForText('// struct Fake : public ContractBase\nint x = 1 / 2;').length === 0,
+    'Commented contract-like text → no diagnostics');
+assert(diagsForText('const char* s = "struct Fake : public ContractBase";\nint x = 1 / 2;').length === 0,
+    'String literal containing contract-like text → no diagnostics');
+assert(diagsForText('struct T\n    : ContractBase\n{\n}\nuint64 x = a / b;').length > 0,
+    'struct T : ContractBase still detected as contract');
+assert(diagsForText('class T final\n    : public ContractBase\n{\n}\nuint64 x = a / b;').length > 0,
+    'class T final : public ContractBase detected as contract');
 
 // ── QPI001 ──────────────────────────────────────────────────────────────────
 section('QPI001 — #include in QPI contract');
 {
     const yes = diagsForText('#include <stdlib.h>\n' + ANCHOR);
     assert(hasDiag(yes, 'QPI001'), '#include <stdlib.h> → QPI001');
+    assert(yes.find(d => d.code === 'QPI001').severity === DiagnosticSeverity.Error,
+        'non-qpi #include → QPI001 Error');
 
     const quoted = diagsForText('#include "myfile.h"\n' + ANCHOR);
     assert(hasDiag(quoted, 'QPI001'), '#include "myfile.h" → QPI001');
+    assert(quoted.find(d => d.code === 'QPI001').severity === DiagnosticSeverity.Error,
+        'non-qpi quoted include → QPI001 Error');
 
     const qpiOk = diagsForText('#include "qpi.h"\n' + ANCHOR);
-    assert(!hasDiag(qpiOk, 'QPI001'), '#include "qpi.h" → no QPI001');
+    assert(hasDiag(qpiOk, 'QPI001'), '#include "qpi.h" → QPI001');
+    assert(qpiOk.find(d => d.code === 'QPI001').severity === DiagnosticSeverity.Warning,
+        '#include qpi.h → QPI001 Warning');
 
     const qpiAngle = diagsForText('#include <qpi.h>\n' + ANCHOR);
-    assert(!hasDiag(qpiAngle, 'QPI001'), '#include <qpi.h> → no QPI001');
+    assert(hasDiag(qpiAngle, 'QPI001'), '#include <qpi.h> → QPI001');
+    assert(qpiAngle.find(d => d.code === 'QPI001').severity === DiagnosticSeverity.Warning,
+        '#include <qpi.h> → QPI001 Warning');
 
     const def = diagsForText('#define FOO 1\n' + ANCHOR);
     assert(hasDiag(def, 'QPI001'), '#define → QPI001');
+    assert(def.find(d => d.code === 'QPI001').severity === DiagnosticSeverity.Error,
+        '#define → QPI001 Error');
 
     const no = diagsForText('// #include <stdlib.h>\n' + ANCHOR);
     assert(!hasDiag(no, 'QPI001'), '#include in comment → no QPI001');
@@ -467,40 +596,40 @@ section('QPI003 — raw % modulo (Error)');
 // ── QPI010 ──────────────────────────────────────────────────────────────────
 section('QPI010 — BEGIN_EPOCH without END_EPOCH');
 {
-    const missing = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nBEGIN_TICK\n{\n}\nEND_TICK\n}`;
+    const missing = wrapAsContract(`PUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nBEGIN_TICK\n{\n}\nEND_TICK\n`);
     assert(hasDiag(diagsForText(missing), 'QPI010'), 'Missing END_EPOCH → QPI010');
 
-    const ok = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\n}`;
+    const ok = wrapAsContract(`PUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\n`);
     assert(!hasDiag(diagsForText(ok), 'QPI010'), 'Balanced BEGIN_EPOCH/END_EPOCH → no QPI010');
 }
 
 // ── QPI011 ──────────────────────────────────────────────────────────────────
 section('QPI011 — BEGIN_TICK without END_TICK');
 {
-    const missing = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\n}`;
+    const missing = wrapAsContract(`PUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\n`);
     assert(hasDiag(diagsForText(missing), 'QPI011'), 'Missing END_TICK → QPI011');
 
-    const ok = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\n}`;
+    const ok = wrapAsContract(`PUBLIC_PROCEDURE(X)\n{\n}\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(X,1);\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\n`);
     assert(!hasDiag(diagsForText(ok), 'QPI011'), 'Balanced BEGIN_TICK/END_TICK → no QPI011');
 }
 
 // ── QPI012 ──────────────────────────────────────────────────────────────────
 section('QPI012 — unregistered PUBLIC_PROCEDURE / PUBLIC_FUNCTION');
 {
-    const unregistered = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(Foo)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n}\n}`;
+    const unregistered = wrapAsContract(`PUBLIC_PROCEDURE(Foo)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n}\n`);
     assert(hasDiag(diagsForText(unregistered), 'QPI012'), 'Foo declared but not registered → QPI012');
 
-    const registered = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(Foo)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(Foo, 1);\n}\n}`;
+    const registered = wrapAsContract(`PUBLIC_PROCEDURE(Foo)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(Foo, 1);\n}\n`);
     assert(!hasDiag(diagsForText(registered), 'QPI012'), 'Foo registered → no QPI012');
 
-    const func = `struct T : public ContractBase {\nPUBLIC_FUNCTION(Bar)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n}\n}`;
+    const func = wrapAsContract(`PUBLIC_FUNCTION(Bar)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n}\n`);
     assert(hasDiag(diagsForText(func), 'QPI012'), 'PUBLIC_FUNCTION not registered → QPI012');
 
-    const funcOk = `struct T : public ContractBase {\nPUBLIC_FUNCTION(Bar)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_FUNCTION(Bar, 1);\n}\n}`;
+    const funcOk = wrapAsContract(`PUBLIC_FUNCTION(Bar)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_FUNCTION(Bar, 1);\n}\n`);
     assert(!hasDiag(diagsForText(funcOk), 'QPI012'), 'PUBLIC_FUNCTION registered → no QPI012');
 
     // Multiple procedures — only one unregistered
-    const multi = `struct T : public ContractBase {\nPUBLIC_PROCEDURE(A)\n{\n}\nPUBLIC_PROCEDURE(B)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(A, 1);\n}\n}`;
+    const multi = wrapAsContract(`PUBLIC_PROCEDURE(A)\n{\n}\nPUBLIC_PROCEDURE(B)\n{\n}\nBEGIN_EPOCH\n{\n}\nEND_EPOCH\nBEGIN_TICK\n{\n}\nEND_TICK\nREGISTER_USER_FUNCTIONS_AND_PROCEDURES\n{\n    REGISTER_USER_PROCEDURE(A, 1);\n}\n`);
     assert(countDiag(diagsForText(multi), 'QPI012') === 1, 'Only B unregistered → exactly 1 QPI012');
 }
 
