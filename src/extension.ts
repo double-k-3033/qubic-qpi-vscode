@@ -362,6 +362,7 @@ function lintDocument(document: vscode.TextDocument): void {
     }
 
     let inBlockComment = false;
+    let braceDepth = 0;
 
     for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
         const lineText = document.lineAt(lineIndex).text;
@@ -371,20 +372,27 @@ function lintDocument(document: vscode.TextDocument): void {
             stripComments(lineText, inBlockComment);
         inBlockComment = nextState;
 
+        const stripped = stripStrings(commentFree);
+        const braceDepthAtLineStart = braceDepth;
+
         // ----------------------------------------------------------------
-        // QPI001: Preprocessor directives
+        // QPI001: Preprocessor directives (all # forbidden except
+        // #include "qpi.h" / <qpi.h> for local IntelliSense — remove before deploy)
         // ----------------------------------------------------------------
         if (/^\s*#/.test(commentFree)) {
-            const col = commentFree.indexOf('#');
-            const range = new vscode.Range(lineIndex, col, lineIndex, lineText.length);
-            const diagnostic = new vscode.Diagnostic(
-                range,
-                'Preprocessor directives (#include, #define, etc.) are not allowed in QPI Smart Contracts.',
-                vscode.DiagnosticSeverity.Warning,
-            );
-            diagnostic.source = 'qubic-qpi';
-            diagnostic.code = 'QPI001';
-            diagnostics.push(diagnostic);
+            if (!isQpiHIncludeLine(commentFree)) {
+                const col = commentFree.indexOf('#');
+                const range = new vscode.Range(lineIndex, col, lineIndex, lineText.length);
+                const diagnostic = new vscode.Diagnostic(
+                    range,
+                    'Preprocessor directives (#) are prohibited in QPI contracts (includes, pragmas, conditional compilation, etc.). You may use #include "qpi.h" or #include <qpi.h> only while developing for IntelliSense; remove all # lines before deployment.',
+                    vscode.DiagnosticSeverity.Warning,
+                );
+                diagnostic.source = 'qubic-qpi';
+                diagnostic.code = 'QPI001';
+                diagnostics.push(diagnostic);
+            }
+            braceDepth += countBraceDelta(stripped);
             continue; // no further checks on this line
         }
 
@@ -395,12 +403,10 @@ function lintDocument(document: vscode.TextDocument): void {
         checkStringLiteral(commentFree, lineIndex, diagnostics);
         checkCharLiteral(commentFree, lineIndex, diagnostics);
 
-        // Phase 2: strip strings for operator / keyword checks
-        const stripped = stripStrings(commentFree);
-
         // ----------------------------------------------------------------
-        // Per-line operator and pattern checks
+        // Per-line operator and pattern checks (stripped = no string contents)
         // ----------------------------------------------------------------
+        checkTypedefUsingScope(stripped, lineIndex, braceDepthAtLineStart, diagnostics);
         checkRawDivision(stripped, lineIndex, diagnostics);
         checkRawModulo(stripped, lineIndex, diagnostics);
         checkArraySubscript(stripped, lineIndex, diagnostics);
@@ -409,6 +415,9 @@ function lintDocument(document: vscode.TextDocument): void {
         checkPointerStar(stripped, lineIndex, diagnostics);
         checkDoubleUnderscore(stripped, lineIndex, diagnostics);
         checkProhibitedKeywords(stripped, lineIndex, diagnostics);
+        checkNativeIntegerKeywords(stripped, lineIndex, diagnostics);
+
+        braceDepth += countBraceDelta(stripped);
     }
 
     // ----------------------------------------------------------------
@@ -614,6 +623,49 @@ function stripComments(
 }
 
 // ---------------------------------------------------------------------------
+// isQpiHIncludeLine — allowed #include for local IDE support (must be removed
+// before deployment per QPI rules).
+// ---------------------------------------------------------------------------
+function isQpiHIncludeLine(commentFree: string): boolean {
+    const t = commentFree.trim();
+    return /^#\s*include\s*["<]qpi\.h[">]/.test(t);
+}
+
+// ---------------------------------------------------------------------------
+// countBraceDelta — net `{` vs `}` on a line (strings already stripped).
+// ---------------------------------------------------------------------------
+function countBraceDelta(s: string): number {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+        if (s[i] === '{') {
+            n++;
+        } else if (s[i] === '}') {
+            n--;
+        }
+    }
+    return n;
+}
+
+// ---------------------------------------------------------------------------
+// braceDepthBeforeIndexInLine — brace nesting depth at a column on this line.
+// ---------------------------------------------------------------------------
+function braceDepthBeforeIndexInLine(
+    stripped: string,
+    pos: number,
+    braceDepthAtLineStart: number,
+): number {
+    let d = braceDepthAtLineStart;
+    for (let i = 0; i < pos; i++) {
+        if (stripped[i] === '{') {
+            d++;
+        } else if (stripped[i] === '}') {
+            d--;
+        }
+    }
+    return d;
+}
+
+// ---------------------------------------------------------------------------
 // stripStrings — strips "..." and '...' literals from (already comment-free)
 // text.  Content is replaced with spaces to preserve column positions.
 // ---------------------------------------------------------------------------
@@ -682,7 +734,7 @@ function checkStringLiteral(
         const range = new vscode.Range(lineIndex, start, lineIndex, Math.min(i, commentFree.length));
         const diagnostic = new vscode.Diagnostic(
             range,
-            'String literals ("...") are not allowed in QPI contracts.',
+            'String literals are prohibited in QPI contracts (they can reference arbitrary memory). Use STATIC_ASSERT from qpi.h, which does not require a string literal.',
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -716,7 +768,7 @@ function checkCharLiteral(
         const range = new vscode.Range(lineIndex, start, lineIndex, Math.min(i, commentFree.length));
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Character literals ('...') are not allowed in QPI contracts.",
+            "Character literals (') are prohibited in QPI contracts.",
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -741,8 +793,8 @@ function checkRawDivision(
         const range = new vscode.Range(lineIndex, col, lineIndex, col + 1);
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Raw '/' division operator detected. Use div(a, b) instead to avoid undefined behaviour in QPI contracts.",
-            vscode.DiagnosticSeverity.Warning,
+            "The '/' operator is prohibited in QPI contracts (division by zero can yield inconsistent state). Use div(a, b), which returns zero when the divisor is zero.",
+            vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
         diagnostic.code = 'QPI002';
@@ -769,7 +821,7 @@ function checkRawModulo(
         const range = new vscode.Range(lineIndex, col, lineIndex, col + 1);
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Raw '%' modulo operator is forbidden in QPI contracts. Use mod(a, b) instead to avoid undefined behaviour.",
+            "The '%' operator is prohibited in QPI contracts. Use mod(a, b), which returns zero when the divisor is zero.",
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -792,7 +844,7 @@ function checkArraySubscript(
             const range = new vscode.Range(lineIndex, i, lineIndex, i + 1);
             const diagnostic = new vscode.Diagnostic(
                 range,
-                `Array subscript '${stripped[i]}' is not allowed in QPI contracts. Use the QPI Array type instead.`,
+                `The characters '[' and ']' are prohibited in QPI contracts (no raw arrays or unchecked buffer indexing). Use QPI Array and related types instead.`,
                 vscode.DiagnosticSeverity.Error,
             );
             diagnostic.source = 'qubic-qpi';
@@ -816,7 +868,7 @@ function checkEllipsis(
         const range = new vscode.Range(lineIndex, idx, lineIndex, idx + 3);
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Variadic/ellipsis '...' is not allowed in QPI contracts.",
+            "Variadic arguments, template parameter packs, and function parameter packs ('...') are prohibited in QPI contracts.",
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -841,15 +893,15 @@ function checkScopeOperator(
 
     while ((match = regex.exec(stripped)) !== null) {
         const name = match[1];
-        if (name && definedNames.has(name)) {
-            continue; // OK — type defined in this contract
+        if (name && (definedNames.has(name) || name === 'QPI')) {
+            continue; // OK — type/namespace from this contract or qpi.h (e.g. QPI::…)
         }
         const col = match.index;
         const len = match[0].length;
         const range = new vscode.Range(lineIndex, col, lineIndex, col + len);
         const msg = name
-            ? `'${name}::' refers to a type not defined in this contract. Scope operator '::' is only allowed for types defined in the contract or qpi.h.`
-            : "Global scope operator '::' is not allowed in QPI contracts.";
+            ? `'${name}::' is not a struct, enum, or namespace from this contract (or QPI from qpi.h). The scope operator '::' is prohibited except for those cases.`
+            : "Leading '::' (global scope) is prohibited in QPI contracts.";
         const diagnostic = new vscode.Diagnostic(
             range,
             msg,
@@ -917,7 +969,7 @@ function checkPointerStar(
         const range = new vscode.Range(lineIndex, i, lineIndex, i + 1);
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Pointer operator '*' is not allowed in QPI contracts. (Multiplication with '*' is OK.)",
+            "Defining, casting, and dereferencing pointers is prohibited; '*' is only allowed for multiplication.",
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -943,7 +995,7 @@ function checkDoubleUnderscore(
         const range = new vscode.Range(lineIndex, col, lineIndex, col + 2);
         const diagnostic = new vscode.Diagnostic(
             range,
-            "Double underscore '__' identifiers are reserved and not allowed in QPI contracts.",
+            "Double underscores '__' are reserved for internal/compiler use and must not appear in a contract.",
             vscode.DiagnosticSeverity.Error,
         );
         diagnostic.source = 'qubic-qpi';
@@ -953,17 +1005,73 @@ function checkDoubleUnderscore(
 }
 
 // ---------------------------------------------------------------------------
-// checkProhibitedKeywords — QPI014 Error
-// Certain C++ keywords and identifiers are forbidden in QPI contracts.
+// checkTypedefUsingScope — QPI016 Error
+// typedef and using are only allowed in local scope; exception: using namespace QPI
+// at file scope (see QPI language rules).
 // ---------------------------------------------------------------------------
-const PROHIBITED_KEYWORDS = ['double', 'float', 'typedef', 'union', 'const_cast', 'QpiContext'];
+function checkTypedefUsingScope(
+    stripped: string,
+    lineIndex: number,
+    braceDepthAtLineStart: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    const typedefRegex = /\btypedef\b/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = typedefRegex.exec(stripped)) !== null) {
+        const depth = braceDepthBeforeIndexInLine(stripped, match.index, braceDepthAtLineStart);
+        if (depth === 0) {
+            const col = match.index;
+            const range = new vscode.Range(lineIndex, col, lineIndex, col + 'typedef'.length);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                "'typedef' is only allowed in local scope (e.g. inside structs or procedures).",
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = 'QPI016';
+            diagnostics.push(diagnostic);
+        }
+    }
+
+    const masked = stripped.replace(/using\s+namespace\s+QPI\b/g, (s) => ' '.repeat(s.length));
+    const usingRegex = /\busing\b/g;
+
+    while ((match = usingRegex.exec(masked)) !== null) {
+        const depth = braceDepthBeforeIndexInLine(masked, match.index, braceDepthAtLineStart);
+        if (depth === 0) {
+            const col = match.index;
+            const range = new vscode.Range(lineIndex, col, lineIndex, col + 'using'.length);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                "'using' is only allowed in local scope except 'using namespace QPI' at global scope.",
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = 'QPI016';
+            diagnostics.push(diagnostic);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkProhibitedKeywords — QPI014 Error
+// Keywords and constructs forbidden by QPI (excluding native integers — QPI015).
+// ---------------------------------------------------------------------------
+const PROHIBITED_KEYWORD_MESSAGES: Record<string, string> = {
+    double: 'Floating-point types (float and double) are prohibited; their arithmetic is not well-defined in contracts.',
+    float: 'Floating-point types (float and double) are prohibited; their arithmetic is not well-defined in contracts.',
+    union: "The keyword 'union' is prohibited — use plain structs for clarity and auditable code.",
+    const_cast: "'const_cast' is prohibited in QPI contracts.",
+    QpiContext: "'QpiContext' is prohibited in QPI contracts.",
+};
 
 function checkProhibitedKeywords(
     stripped: string,
     lineIndex: number,
     diagnostics: vscode.Diagnostic[],
 ): void {
-    for (const kw of PROHIBITED_KEYWORDS) {
+    for (const kw of Object.keys(PROHIBITED_KEYWORD_MESSAGES)) {
         const regex = new RegExp(`\\b${kw}\\b`, 'g');
         let match: RegExpExecArray | null;
 
@@ -972,11 +1080,41 @@ function checkProhibitedKeywords(
             const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
             const diagnostic = new vscode.Diagnostic(
                 range,
-                `'${kw}' is not allowed in QPI contracts.`,
+                PROHIBITED_KEYWORD_MESSAGES[kw],
                 vscode.DiagnosticSeverity.Error,
             );
             diagnostic.source = 'qubic-qpi';
             diagnostic.code = 'QPI014';
+            diagnostics.push(diagnostic);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkNativeIntegerKeywords — QPI015 Error
+// Native C/C++ integer-related keywords are prohibited; use QPI integer types.
+// ---------------------------------------------------------------------------
+const NATIVE_INTEGER_KEYWORDS = ['int', 'char', 'short', 'long', 'bool', 'signed', 'unsigned'];
+
+function checkNativeIntegerKeywords(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (const kw of NATIVE_INTEGER_KEYWORDS) {
+        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(stripped)) !== null) {
+            const col = match.index;
+            const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                'Native C/C++ integer and bool keywords are prohibited; use sint8, uint8, sint16, uint16, sint32, uint32, sint64, uint64, bit, id, etc.',
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = 'QPI015';
             diagnostics.push(diagnostic);
         }
     }
@@ -1098,8 +1236,8 @@ function buildContractTemplate(name: string): string {
         `// Created: ${today}`,
         `//`,
         `// This file uses the Qubic Public Interface (QPI).`,
-        `// Do NOT use #include, raw division (/), or modulo (%) operators.`,
-        `// Use div() and mod() for integer arithmetic instead.`,
+        `// No preprocessor (#) except optional #include "qpi.h" for IntelliSense — remove before deploy.`,
+        `// Use div() and mod() instead of / and %.`,
         ``,
         `using namespace QPI;`,
         ``,
