@@ -3,21 +3,12 @@ import * as path from 'path';
 import * as os from 'os';
 
 // ---------------------------------------------------------------------------
-// QPI keyword set — used to decide whether a .h file is a QPI contract
+// Smart contract detection — a .h file is a QPI contract if it inherits from
+// ContractBase (e.g.  struct MyContract : public ContractBase).
+// This naturally excludes qpi.h (which *defines* ContractBase) and plain
+// C++ headers.
 // ---------------------------------------------------------------------------
-const QPI_KEYWORDS = [
-    'PUBLIC_PROCEDURE',
-    'PUBLIC_FUNCTION',
-    'PUBLIC_PROCEDURE_WITH_LOCALS',
-    'PUBLIC_FUNCTION_WITH_LOCALS',
-    'BEGIN_EPOCH',
-    'END_EPOCH',
-    'BEGIN_TICK',
-    'END_TICK',
-    'REGISTER_USER_FUNCTIONS_AND_PROCEDURES',
-];
-
-const QPI_KEYWORD_REGEX = new RegExp(QPI_KEYWORDS.join('|'));
+const QPI_CONTRACT_REGEX = /\bContractBase\b/;
 
 // ---------------------------------------------------------------------------
 // QPI API definitions — shared by IntelliSense and hover provider
@@ -161,17 +152,41 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // --- Command: create a new empty QPI contract file ---
     const newContractCmd = vscode.commands.registerCommand('qubic.newContract', async () => {
-        const name = await vscode.window.showInputBox({
-            prompt: 'Enter contract name (e.g. MyContract)',
-            validateInput: (v) =>
-                /^[A-Za-z][A-Za-z0-9_]*$/.test(v) ? null : 'Use only letters, digits, and underscores',
-        });
+        const workspaceFolders = vscode.workspace.workspaceFolders;
 
-        if (!name) {
-            return;
+        let name: string | undefined;
+        while (true) {
+            name = await vscode.window.showInputBox({
+                prompt: 'Enter contract name (e.g. MyContract)',
+                validateInput: (v) =>
+                    /^[A-Za-z][A-Za-z0-9_]*$/.test(v) ? null : 'Use only letters, digits, and underscores',
+            });
+
+            if (!name) {
+                return;
+            }
+
+            const candidateUri = workspaceFolders
+                ? vscode.Uri.joinPath(workspaceFolders[0].uri, `${name}.h`)
+                : vscode.Uri.file(path.join(os.homedir(), `${name}.h`));
+
+            let exists = false;
+            try {
+                await vscode.workspace.fs.stat(candidateUri);
+                exists = true;
+            } catch {
+                exists = false;
+            }
+
+            if (exists) {
+                await vscode.window.showErrorMessage(
+                    'A smart contract with the same name already exists, so please specify a different name',
+                );
+            } else {
+                break;
+            }
         }
 
-        const workspaceFolders = vscode.workspace.workspaceFolders;
         const targetUri = workspaceFolders
             ? vscode.Uri.joinPath(workspaceFolders[0].uri, `${name}.h`)
             : vscode.Uri.file(path.join(os.homedir(), `${name}.h`));
@@ -285,7 +300,7 @@ export function deactivate(): void {
 // isQpiDocument — true when the document looks like a QPI contract
 // ---------------------------------------------------------------------------
 function isQpiDocument(document: vscode.TextDocument): boolean {
-    return document.fileName.endsWith('.h') && QPI_KEYWORD_REGEX.test(document.getText());
+    return document.fileName.endsWith('.h') && QPI_CONTRACT_REGEX.test(document.getText());
 }
 
 // ---------------------------------------------------------------------------
@@ -326,27 +341,45 @@ function lintDocument(document: vscode.TextDocument): void {
 
     const text = document.getText();
 
-    // Skip files with no QPI keywords — likely plain C++ headers
-    if (!QPI_KEYWORD_REGEX.test(text)) {
+    // Skip files that do not inherit from ContractBase — not a smart contract
+    if (!QPI_CONTRACT_REGEX.test(text)) {
         diagnosticCollection.delete(document.uri);
         return;
     }
 
     const diagnostics: vscode.Diagnostic[] = [];
 
+    // Strip all comments from the full text for document-level rules.
+    // Positions are preserved (content replaced with spaces, newlines kept).
+    const strippedText = stripAllComments(text);
+
+    // Collect struct/enum/class/namespace names for scope-operator check
+    const definedNames = new Set<string>();
+    const defRegex = /\b(?:struct|enum|class|namespace)\s+(\w+)/g;
+    let defMatch: RegExpExecArray | null;
+    while ((defMatch = defRegex.exec(strippedText)) !== null) {
+        definedNames.add(defMatch[1]);
+    }
+
+    let inBlockComment = false;
+
     for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
-        const line = document.lineAt(lineIndex);
-        const lineText = line.text;
+        const lineText = document.lineAt(lineIndex).text;
+
+        // Phase 1: strip comments (preserving string/char literals)
+        const { result: commentFree, inBlockComment: nextState } =
+            stripComments(lineText, inBlockComment);
+        inBlockComment = nextState;
 
         // ----------------------------------------------------------------
-        // Rule 1: Warn on #include directives in QPI contracts
+        // QPI001: Preprocessor directives
         // ----------------------------------------------------------------
-        if (/^\s*#include\s*[<"]/.test(lineText)) {
-            const startChar = lineText.indexOf('#include');
-            const range = new vscode.Range(lineIndex, startChar, lineIndex, lineText.length);
+        if (/^\s*#/.test(commentFree)) {
+            const col = commentFree.indexOf('#');
+            const range = new vscode.Range(lineIndex, col, lineIndex, lineText.length);
             const diagnostic = new vscode.Diagnostic(
                 range,
-                '#include is not recommended in QPI Smart Contracts. Use QPI built-in types and functions instead.',
+                'Preprocessor directives (#include, #define, etc.) are not allowed in QPI Smart Contracts.',
                 vscode.DiagnosticSeverity.Warning,
             );
             diagnostic.source = 'qubic-qpi';
@@ -356,25 +389,33 @@ function lintDocument(document: vscode.TextDocument): void {
         }
 
         // ----------------------------------------------------------------
-        // Strip line comments and string literals before checking operators
+        // QPI004 / QPI005: string and char literals
+        // Checked on comment-free text before strings are stripped.
         // ----------------------------------------------------------------
-        const stripped = stripStringsAndComments(lineText);
+        checkStringLiteral(commentFree, lineIndex, diagnostics);
+        checkCharLiteral(commentFree, lineIndex, diagnostics);
+
+        // Phase 2: strip strings for operator / keyword checks
+        const stripped = stripStrings(commentFree);
 
         // ----------------------------------------------------------------
-        // Rule 2: Warn on raw '/' division operator (use div() instead)
+        // Per-line operator and pattern checks
         // ----------------------------------------------------------------
         checkRawDivision(stripped, lineIndex, diagnostics);
-
-        // ----------------------------------------------------------------
-        // Rule 3 (Error): Raw '%' modulo operator — use mod() instead
-        // ----------------------------------------------------------------
         checkRawModulo(stripped, lineIndex, diagnostics);
+        checkArraySubscript(stripped, lineIndex, diagnostics);
+        checkEllipsis(stripped, lineIndex, diagnostics);
+        checkScopeOperator(stripped, lineIndex, diagnostics, definedNames);
+        checkPointerStar(stripped, lineIndex, diagnostics);
+        checkDoubleUnderscore(stripped, lineIndex, diagnostics);
+        checkProhibitedKeywords(stripped, lineIndex, diagnostics);
     }
 
     // ----------------------------------------------------------------
-    // Contract-level validation (whole-document rules)
+    // Contract-level validation (whole-document rules).
+    // Uses strippedText so keywords inside comments are ignored.
     // ----------------------------------------------------------------
-    validateContract(document, text, diagnostics);
+    validateContract(document, strippedText, diagnostics);
 
     diagnosticCollection.set(document.uri, diagnostics);
 }
@@ -402,26 +443,191 @@ function validateContract(
 }
 
 // ---------------------------------------------------------------------------
-// stripStringsAndComments
+// stripAllComments — removes // and /* */ comments from full document text.
+// Preserves string/char literals so they are not misinterpreted as comments.
+// Content is replaced with spaces; newlines are kept for positional accuracy.
 // ---------------------------------------------------------------------------
-function stripStringsAndComments(line: string): string {
+function stripAllComments(text: string): string {
     let result = '';
     let i = 0;
+    let inBlock = false;
+
+    while (i < text.length) {
+        if (inBlock) {
+            if (text[i] === '*' && text[i + 1] === '/') {
+                result += '  ';
+                i += 2;
+                inBlock = false;
+            } else {
+                result += text[i] === '\n' ? '\n' : ' ';
+                i++;
+            }
+            continue;
+        }
+
+        // Block comment start
+        if (text[i] === '/' && text[i + 1] === '*') {
+            result += '  ';
+            i += 2;
+            inBlock = true;
+            continue;
+        }
+
+        // Line comment — blank to end of line
+        if (text[i] === '/' && text[i + 1] === '/') {
+            while (i < text.length && text[i] !== '\n') {
+                result += ' ';
+                i++;
+            }
+            continue;
+        }
+
+        // Skip over string literals (preserve them)
+        if (text[i] === '"') {
+            result += text[i];
+            i++;
+            while (i < text.length && text[i] !== '"' && text[i] !== '\n') {
+                if (text[i] === '\\') {
+                    result += text[i];
+                    i++;
+                }
+                result += text[i];
+                i++;
+            }
+            if (i < text.length && text[i] === '"') {
+                result += text[i];
+                i++;
+            }
+            continue;
+        }
+
+        // Skip over char literals (preserve them)
+        if (text[i] === "'") {
+            result += text[i];
+            i++;
+            while (i < text.length && text[i] !== "'" && text[i] !== '\n') {
+                if (text[i] === '\\') {
+                    result += text[i];
+                    i++;
+                }
+                result += text[i];
+                i++;
+            }
+            if (i < text.length && text[i] === "'") {
+                result += text[i];
+                i++;
+            }
+            continue;
+        }
+
+        result += text[i];
+        i++;
+    }
+
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// stripComments — strips // and /* */ comments from a single line.
+// Preserves string/char literals so they can be detected separately.
+// Returns the cleaned line and the updated block-comment state.
+// ---------------------------------------------------------------------------
+function stripComments(
+    line: string,
+    inBlockComment: boolean,
+): { result: string; inBlockComment: boolean } {
+    let result = '';
+    let i = 0;
+    let inBlock = inBlockComment;
 
     while (i < line.length) {
-        // Line comment — treat the rest of the line as whitespace
+        // Inside a block comment — scan for closing */
+        if (inBlock) {
+            if (line[i] === '*' && line[i + 1] === '/') {
+                result += '  ';
+                i += 2;
+                inBlock = false;
+            } else {
+                result += ' ';
+                i++;
+            }
+            continue;
+        }
+
+        // Line comment — blank out the rest of the line
         if (line[i] === '/' && line[i + 1] === '/') {
             result += ' '.repeat(line.length - i);
             break;
         }
 
-        // Double-quoted string literal
+        // Block comment start
+        if (line[i] === '/' && line[i + 1] === '*') {
+            result += '  ';
+            i += 2;
+            inBlock = true;
+            continue;
+        }
+
+        // Skip over string literals (preserve them)
+        if (line[i] === '"') {
+            result += line[i];
+            i++;
+            while (i < line.length && line[i] !== '"') {
+                if (line[i] === '\\') {
+                    result += line[i];
+                    i++;
+                }
+                result += line[i];
+                i++;
+            }
+            if (i < line.length) {
+                result += line[i]; // closing "
+                i++;
+            }
+            continue;
+        }
+
+        // Skip over char literals (preserve them)
+        if (line[i] === "'") {
+            result += line[i];
+            i++;
+            while (i < line.length && line[i] !== "'") {
+                if (line[i] === '\\') {
+                    result += line[i];
+                    i++;
+                }
+                result += line[i];
+                i++;
+            }
+            if (i < line.length) {
+                result += line[i]; // closing '
+                i++;
+            }
+            continue;
+        }
+
+        result += line[i];
+        i++;
+    }
+
+    return { result, inBlockComment: inBlock };
+}
+
+// ---------------------------------------------------------------------------
+// stripStrings — strips "..." and '...' literals from (already comment-free)
+// text.  Content is replaced with spaces to preserve column positions.
+// ---------------------------------------------------------------------------
+function stripStrings(line: string): string {
+    let result = '';
+    let i = 0;
+
+    while (i < line.length) {
         if (line[i] === '"') {
             const start = i;
             i++;
             while (i < line.length && line[i] !== '"') {
                 if (line[i] === '\\') {
-                    i++; // skip escaped character
+                    i++;
                 }
                 i++;
             }
@@ -430,7 +636,6 @@ function stripStringsAndComments(line: string): string {
             continue;
         }
 
-        // Single-quoted character literal
         if (line[i] === "'") {
             const start = i;
             i++;
@@ -450,6 +655,74 @@ function stripStringsAndComments(line: string): string {
     }
 
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// checkStringLiteral — QPI004 Error
+// String literals ("...") are not supported in QPI contracts.
+// ---------------------------------------------------------------------------
+function checkStringLiteral(
+    commentFree: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (let i = 0; i < commentFree.length; i++) {
+        if (commentFree[i] !== '"') {
+            continue;
+        }
+        const start = i;
+        i++;
+        while (i < commentFree.length && commentFree[i] !== '"') {
+            if (commentFree[i] === '\\') {
+                i++;
+            }
+            i++;
+        }
+        i++; // past closing "
+        const range = new vscode.Range(lineIndex, start, lineIndex, Math.min(i, commentFree.length));
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            'String literals ("...") are not allowed in QPI contracts.',
+            vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI004';
+        diagnostics.push(diagnostic);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkCharLiteral — QPI005 Error
+// Character literals ('...') are not supported in QPI contracts.
+// ---------------------------------------------------------------------------
+function checkCharLiteral(
+    commentFree: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (let i = 0; i < commentFree.length; i++) {
+        if (commentFree[i] !== "'") {
+            continue;
+        }
+        const start = i;
+        i++;
+        while (i < commentFree.length && commentFree[i] !== "'") {
+            if (commentFree[i] === '\\') {
+                i++;
+            }
+            i++;
+        }
+        i++; // past closing '
+        const range = new vscode.Range(lineIndex, start, lineIndex, Math.min(i, commentFree.length));
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            "Character literals ('...') are not allowed in QPI contracts.",
+            vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI005';
+        diagnostics.push(diagnostic);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +775,210 @@ function checkRawModulo(
         diagnostic.source = 'qubic-qpi';
         diagnostic.code = 'QPI003';
         diagnostics.push(diagnostic);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkArraySubscript — QPI006 Error
+// Array subscripts ([ ]) are not supported; use the QPI Array type.
+// ---------------------------------------------------------------------------
+function checkArraySubscript(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (let i = 0; i < stripped.length; i++) {
+        if (stripped[i] === '[' || stripped[i] === ']') {
+            const range = new vscode.Range(lineIndex, i, lineIndex, i + 1);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                `Array subscript '${stripped[i]}' is not allowed in QPI contracts. Use the QPI Array type instead.`,
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = 'QPI006';
+            diagnostics.push(diagnostic);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkEllipsis — QPI007 Error
+// Variadic / ellipsis (...) is not supported in QPI contracts.
+// ---------------------------------------------------------------------------
+function checkEllipsis(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    let idx = stripped.indexOf('...');
+    while (idx !== -1) {
+        const range = new vscode.Range(lineIndex, idx, lineIndex, idx + 3);
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            "Variadic/ellipsis '...' is not allowed in QPI contracts.",
+            vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI007';
+        diagnostics.push(diagnostic);
+        idx = stripped.indexOf('...', idx + 3);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkScopeOperator — QPI008 Warning
+// '::' is only allowed for types defined in the same contract or qpi.h.
+// ---------------------------------------------------------------------------
+function checkScopeOperator(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+    definedNames: Set<string>,
+): void {
+    const regex = /(?:(\w+)\s*)?::/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(stripped)) !== null) {
+        const name = match[1];
+        if (name && definedNames.has(name)) {
+            continue; // OK — type defined in this contract
+        }
+        const col = match.index;
+        const len = match[0].length;
+        const range = new vscode.Range(lineIndex, col, lineIndex, col + len);
+        const msg = name
+            ? `'${name}::' refers to a type not defined in this contract. Scope operator '::' is only allowed for types defined in the contract or qpi.h.`
+            : "Global scope operator '::' is not allowed in QPI contracts.";
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            msg,
+            vscode.DiagnosticSeverity.Warning,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI008';
+        diagnostics.push(diagnostic);
+    }
+}
+
+// Keywords that do not produce expression values — when followed by '*',
+// the '*' is a pointer operator, not multiplication.
+const NON_EXPR_KEYWORDS = new Set([
+    'return', 'throw', 'case', 'goto', 'new', 'delete',
+    'sizeof', 'alignof', 'typeof',
+    'const', 'volatile', 'static', 'extern', 'register',
+    'signed', 'unsigned', 'short', 'long',
+    'void', 'int', 'char', 'bool',
+    'sint8', 'sint16', 'sint32', 'sint64',
+    'uint8', 'uint16', 'uint32', 'uint64',
+    'id', 'bit',
+]);
+
+// ---------------------------------------------------------------------------
+// checkPointerStar — QPI009 Error
+// Pointer operators (* for dereference / declaration) are not allowed.
+// Multiplication is permitted — distinguished by checking whether '*' has
+// an expression-producing left operand.
+// ---------------------------------------------------------------------------
+function checkPointerStar(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (let i = 0; i < stripped.length; i++) {
+        if (stripped[i] !== '*') {
+            continue;
+        }
+
+        // Look left, skipping spaces, for an expression-end token
+        let left = i - 1;
+        while (left >= 0 && stripped[left] === ' ') {
+            left--;
+        }
+
+        let isMultiplication = left >= 0 && /[\w)]/.test(stripped[left]);
+
+        // If the preceding word is a keyword/type, it is a pointer decl
+        if (isMultiplication && left >= 0 && /\w/.test(stripped[left])) {
+            let wordStart = left;
+            while (wordStart > 0 && /\w/.test(stripped[wordStart - 1])) {
+                wordStart--;
+            }
+            const word = stripped.substring(wordStart, left + 1);
+            if (NON_EXPR_KEYWORDS.has(word)) {
+                isMultiplication = false;
+            }
+        }
+
+        if (isMultiplication) {
+            continue;
+        }
+
+        const range = new vscode.Range(lineIndex, i, lineIndex, i + 1);
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            "Pointer operator '*' is not allowed in QPI contracts. (Multiplication with '*' is OK.)",
+            vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI009';
+        diagnostics.push(diagnostic);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkDoubleUnderscore — QPI013 Error
+// Double-underscore identifiers are reserved and not permitted.
+// ---------------------------------------------------------------------------
+function checkDoubleUnderscore(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    const regex = /__/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(stripped)) !== null) {
+        const col = match.index;
+        const range = new vscode.Range(lineIndex, col, lineIndex, col + 2);
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            "Double underscore '__' identifiers are reserved and not allowed in QPI contracts.",
+            vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = 'qubic-qpi';
+        diagnostic.code = 'QPI013';
+        diagnostics.push(diagnostic);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// checkProhibitedKeywords — QPI014 Error
+// Certain C++ keywords and identifiers are forbidden in QPI contracts.
+// ---------------------------------------------------------------------------
+const PROHIBITED_KEYWORDS = ['double', 'float', 'typedef', 'union', 'const_cast', 'QpiContext'];
+
+function checkProhibitedKeywords(
+    stripped: string,
+    lineIndex: number,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    for (const kw of PROHIBITED_KEYWORDS) {
+        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(stripped)) !== null) {
+            const col = match.index;
+            const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
+            const diagnostic = new vscode.Diagnostic(
+                range,
+                `'${kw}' is not allowed in QPI contracts.`,
+                vscode.DiagnosticSeverity.Error,
+            );
+            diagnostic.source = 'qubic-qpi';
+            diagnostic.code = 'QPI014';
+            diagnostics.push(diagnostic);
+        }
     }
 }
 
@@ -624,7 +1101,9 @@ function buildContractTemplate(name: string): string {
         `// Do NOT use #include, raw division (/), or modulo (%) operators.`,
         `// Use div() and mod() for integer arithmetic instead.`,
         ``,
-        `struct ${name}`,
+        `using namespace QPI;`,
+        ``,
+        `struct ${name} : public ContractBase`,
         `{`,
         separator,
         `    // State variables`,
@@ -645,27 +1124,11 @@ function buildContractTemplate(name: string): string {
         `    };`,
         ``,
         separator,
-        `    // Epoch hook`,
-        separator,
-        `    BEGIN_EPOCH`,
-        `    {`,
-        `    }`,
-        `    END_EPOCH`,
-        ``,
-        separator,
-        `    // Tick hook`,
-        separator,
-        `    BEGIN_TICK`,
-        `    {`,
-        `    }`,
-        `    END_TICK`,
-        ``,
-        separator,
         `    // Procedure: Invoke`,
         separator,
         `    PUBLIC_PROCEDURE(Invoke)`,
         `    {`,
-        `        totalInvocations = totalInvocations + 1;`,
+        `        state.mut().totalInvocations = state.get().totalInvocations + 1;`,
         `        output.result = input.amount;`,
         `    }`,
         ``,
@@ -675,6 +1138,13 @@ function buildContractTemplate(name: string): string {
         `    REGISTER_USER_FUNCTIONS_AND_PROCEDURES`,
         `    {`,
         `        REGISTER_USER_PROCEDURE(Invoke, 1);`,
+        `    }`,
+        ``,
+        separator,
+        `    // Initialization`,
+        separator,
+        `    INITIALIZE()`,
+        `    {`,
         `    }`,
         `};`,
         ``,
