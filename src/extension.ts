@@ -3,12 +3,22 @@ import * as path from 'path';
 import * as os from 'os';
 
 // ---------------------------------------------------------------------------
-// Smart contract detection — a .h file is a QPI contract if it inherits from
-// ContractBase (e.g.  struct MyContract : public ContractBase).
-// This naturally excludes qpi.h (which *defines* ContractBase) and plain
-// C++ headers.
+// Smart contract detection — lint/completions/hover should activate only when
+// the file itself looks like a QPI contract declaration, not merely because it
+// mentions `qpi.h` or `ContractBase` somewhere.
+//
+// Supported forms include:
+//   struct MyContract : public ContractBase
+//   struct MyContract : ContractBase
+//   class MyContract final : public ContractBase
+//   struct MyContract
+//       : public ContractBase
+//
+// Comments and string/char literals are stripped before matching, so quoted or
+// commented examples do not accidentally turn linting on.
 // ---------------------------------------------------------------------------
-const QPI_CONTRACT_REGEX = /\bContractBase\b/;
+const QPI_CONTRACT_DECLARATION_REGEX =
+    /\b(?:struct|class)\s+[A-Za-z_]\w*(?:\s+final)?\s*:\s*(?:(?:public|protected|private)\s+)?ContractBase\b/;
 
 // ---------------------------------------------------------------------------
 // QPI API definitions — shared by IntelliSense and hover provider
@@ -300,12 +310,12 @@ export function deactivate(): void {
 // isQpiDocument — true when the document looks like a QPI contract
 // ---------------------------------------------------------------------------
 function isQpiDocument(document: vscode.TextDocument): boolean {
-    if (!document.fileName.endsWith('.h')) {
-        return false;
-    }
-    // Strip comments before checking so that a comment like
-    // "// does not inherit ContractBase" never activates linting.
-    return QPI_CONTRACT_REGEX.test(stripAllComments(document.getText()));
+    return document.fileName.endsWith('.h') && looksLikeQpiContractText(document.getText());
+}
+
+function looksLikeQpiContractText(text: string): boolean {
+    const strippedText = stripStrings(stripAllComments(text));
+    return QPI_CONTRACT_DECLARATION_REGEX.test(strippedText);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,17 +356,17 @@ function lintDocument(document: vscode.TextDocument): void {
 
     const text = document.getText();
 
-    // Strip all comments first so comments like "// not a ContractBase file"
-    // do not cause linting to fire. Positions are preserved (spaces replace content).
-    const strippedText = stripAllComments(text);
-
-    // Skip files that do not inherit from ContractBase — not a smart contract
-    if (!QPI_CONTRACT_REGEX.test(strippedText)) {
+    // Skip files that do not declare a QPI smart contract — not a smart contract
+    if (!looksLikeQpiContractText(text)) {
         diagnosticCollection.delete(document.uri);
         return;
     }
 
     const diagnostics: vscode.Diagnostic[] = [];
+
+    // Strip all comments from the full text for document-level rules.
+    // Positions are preserved (content replaced with spaces, newlines kept).
+    const strippedText = stripAllComments(text);
 
     // Collect struct/enum/class/namespace names for scope-operator check
     const definedNames = new Set<string>();
@@ -381,17 +391,26 @@ function lintDocument(document: vscode.TextDocument): void {
         const braceDepthAtLineStart = braceDepth;
 
         // ----------------------------------------------------------------
-        // QPI001: Preprocessor directives (all # forbidden except
-        // #include "qpi.h" / <qpi.h> for local IntelliSense — remove before deploy)
+        // QPI001: Preprocessor — #include "qpi.h" / <qpi.h> is Warning (IDE only);
+        // any other # line (other includes, #define, etc.) is Error.
         // ----------------------------------------------------------------
         if (/^\s*#/.test(commentFree)) {
-            if (!isQpiHIncludeLine(commentFree)) {
-                const col = commentFree.indexOf('#');
-                const range = new vscode.Range(lineIndex, col, lineIndex, lineText.length);
+            const col = commentFree.indexOf('#');
+            const range = new vscode.Range(lineIndex, col, lineIndex, lineText.length);
+            if (isQpiHIncludeLine(commentFree)) {
                 const diagnostic = new vscode.Diagnostic(
                     range,
-                    'Preprocessor directives (#) are prohibited in QPI contracts (includes, pragmas, conditional compilation, etc.). You may use #include "qpi.h" or #include <qpi.h> only while developing for IntelliSense; remove all # lines before deployment.',
+                    '#include of qpi.h is allowed only for local IntelliSense while developing; remove this line before deploying the contract.',
                     vscode.DiagnosticSeverity.Warning,
+                );
+                diagnostic.source = 'qubic-qpi';
+                diagnostic.code = 'QPI001';
+                diagnostics.push(diagnostic);
+            } else {
+                const diagnostic = new vscode.Diagnostic(
+                    range,
+                    'Preprocessor directives (#) are prohibited in deployed QPI contracts. This line is not #include of qpi.h — remove it (other headers, #define, #pragma, conditional compilation, etc. are forbidden).',
+                    vscode.DiagnosticSeverity.Error,
                 );
                 diagnostic.source = 'qubic-qpi';
                 diagnostic.code = 'QPI001';
@@ -628,8 +647,7 @@ function stripComments(
 }
 
 // ---------------------------------------------------------------------------
-// isQpiHIncludeLine — allowed #include for local IDE support (must be removed
-// before deployment per QPI rules).
+// isQpiHIncludeLine — #include "qpi.h" / <qpi.h> (linted as QPI001 Warning, not Error).
 // ---------------------------------------------------------------------------
 function isQpiHIncludeLine(commentFree: string): boolean {
     const t = commentFree.trim();
@@ -1072,8 +1090,8 @@ const PROHIBITED_KEYWORD_MESSAGES: Record<string, string> = {
 };
 
 // Pre-compiled patterns — avoids recompiling the same regex on every line.
-const PROHIBITED_KEYWORD_PATTERNS: Array<[string, string]> =
-    Object.keys(PROHIBITED_KEYWORD_MESSAGES).map((kw) => [kw, `\\b${kw}\\b`] as [string, string]);
+const PROHIBITED_KEYWORD_PATTERNS: Array<[string, RegExp]> =
+    Object.keys(PROHIBITED_KEYWORD_MESSAGES).map((kw) => [kw, new RegExp(`\\b${kw}\\b`, 'g')] as [string, RegExp]);
 
 function checkProhibitedKeywords(
     stripped: string,
@@ -1081,10 +1099,10 @@ function checkProhibitedKeywords(
     diagnostics: vscode.Diagnostic[],
 ): void {
     for (const [kw, pattern] of PROHIBITED_KEYWORD_PATTERNS) {
-        const regex = new RegExp(pattern, 'g');
+        pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
 
-        while ((match = regex.exec(stripped)) !== null) {
+        while ((match = pattern.exec(stripped)) !== null) {
             const col = match.index;
             const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
             const diagnostic = new vscode.Diagnostic(
@@ -1106,8 +1124,8 @@ function checkProhibitedKeywords(
 const NATIVE_INTEGER_KEYWORDS = ['int', 'char', 'short', 'long', 'bool', 'signed', 'unsigned'];
 
 // Pre-compiled patterns — avoids recompiling the same regex on every line.
-const NATIVE_INTEGER_KEYWORD_PATTERNS: Array<[string, string]> =
-    NATIVE_INTEGER_KEYWORDS.map((kw) => [kw, `\\b${kw}\\b`] as [string, string]);
+const NATIVE_INTEGER_KEYWORD_PATTERNS: Array<[string, RegExp]> =
+    NATIVE_INTEGER_KEYWORDS.map((kw) => [kw, new RegExp(`\\b${kw}\\b`, 'g')] as [string, RegExp]);
 
 function checkNativeIntegerKeywords(
     stripped: string,
@@ -1115,10 +1133,10 @@ function checkNativeIntegerKeywords(
     diagnostics: vscode.Diagnostic[],
 ): void {
     for (const [kw, pattern] of NATIVE_INTEGER_KEYWORD_PATTERNS) {
-        const regex = new RegExp(pattern, 'g');
+        pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
 
-        while ((match = regex.exec(stripped)) !== null) {
+        while ((match = pattern.exec(stripped)) !== null) {
             const col = match.index;
             const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
             const diagnostic = new vscode.Diagnostic(

@@ -31,7 +31,7 @@ The extension analyses `.h` files that inherit from `ContractBase` and applies t
 
 | Code | Severity | Rule |
 |---|---|---|
-| `QPI001` | Warning | Preprocessor `#` — prohibited except `#include "qpi.h"` / `<qpi.h>` for local IntelliSense (remove before deploy) |
+| `QPI001` | Warning / Error | **Warning:** `#include "qpi.h"` / `<qpi.h>` only (IDE helper — remove before deploy). **Error:** any other `#` line (other includes, `#define`, etc.) |
 | `QPI002` | Error | `/` operator prohibited — use `div(a, b)` |
 | `QPI003` | Error | `%` operator prohibited — use `mod(a, b)` |
 | `QPI004` | Error | String literals (double quotes) prohibited |
@@ -105,7 +105,7 @@ The linter activates automatically for `.h` files that contain QPI keywords. Pro
 
 | Code | Colour | What to do |
 |---|---|---|
-| `QPI001` | Yellow (Warning) | Remove `#` lines or keep only `#include "qpi.h"` / `<qpi.h>` for IDE, then remove for deployment |
+| `QPI001` | Yellow (**Warning**) for `#include` *qpi.h* only; red (**Error**) for any other `#` | Remove all `#` before deploy; `qpi.h` is warning-level as a dev-only include |
 | `QPI002` | Red (Error) | Replace `/` with `div(a, b)` |
 | `QPI003` | Red (Error) | Replace `%` with `mod(a, b)` |
 | `QPI004`–`QPI009`, `QPI013`–`QPI016` | Red (Error) | Match the restriction named in the Problems panel message |
