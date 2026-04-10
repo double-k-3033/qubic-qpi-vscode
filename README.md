@@ -253,3 +253,13 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 - [QPI Documentation](https://docs.qubic.org/developers/qpi/)
 - [Unofficial SC Guide](https://medium.com/@qsilver97/an-unofficial-guide-to-writing-qubic-smart-contracts-sc-774541a88610)
 - [vscode-solidity as reference](https://github.com/juanfranblanco/vscode-solidity)
+
+---
+
+## Contributors
+
+Thanks to everyone who has contributed code, fixes, and improvements to this extension.
+
+- [@double-k-3033](https://github.com/double-k-3033) — Hardened smart contract detection
+  (`QPI_CONTRACT_DECLARATION_REGEX`), split QPI001 into Warning/Error severity, and improved
+  test harness accuracy. Thank you for the thorough and well-structured contributions!

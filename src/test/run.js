@@ -389,11 +389,11 @@ function diagsForText(content) {
         const braceDepthAtLineStart = braceDepth;
 
         // QPI001 — #include qpi.h: Warning; any other #: Error
-        if (/^\s*#/.test(lineText)) {
+        if (/^\s*#/.test(stripped)) {
             diagnostics.push({
                 code: 'QPI001',
                 line: li,
-                severity: isQpiHIncludeLine(lineText) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+                severity: isQpiHIncludeLine(stripped) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
             });
             braceDepth += countBraceDelta(stripped);
             continue;
