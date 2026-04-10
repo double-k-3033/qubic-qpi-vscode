@@ -801,7 +801,7 @@ function checkCharLiteral(
 }
 
 // ---------------------------------------------------------------------------
-// checkRawDivision — QPI002 Warning
+// checkRawDivision — QPI002 Error
 // ---------------------------------------------------------------------------
 function checkRawDivision(
     stripped: string,
@@ -1089,16 +1089,20 @@ const PROHIBITED_KEYWORD_MESSAGES: Record<string, string> = {
     QpiContext: "'QpiContext' is prohibited in QPI contracts.",
 };
 
+// Pre-compiled patterns — avoids recompiling the same regex on every line.
+const PROHIBITED_KEYWORD_PATTERNS: Array<[string, RegExp]> =
+    Object.keys(PROHIBITED_KEYWORD_MESSAGES).map((kw) => [kw, new RegExp(`\\b${kw}\\b`, 'g')] as [string, RegExp]);
+
 function checkProhibitedKeywords(
     stripped: string,
     lineIndex: number,
     diagnostics: vscode.Diagnostic[],
 ): void {
-    for (const kw of Object.keys(PROHIBITED_KEYWORD_MESSAGES)) {
-        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+    for (const [kw, pattern] of PROHIBITED_KEYWORD_PATTERNS) {
+        pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
 
-        while ((match = regex.exec(stripped)) !== null) {
+        while ((match = pattern.exec(stripped)) !== null) {
             const col = match.index;
             const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
             const diagnostic = new vscode.Diagnostic(
@@ -1119,16 +1123,20 @@ function checkProhibitedKeywords(
 // ---------------------------------------------------------------------------
 const NATIVE_INTEGER_KEYWORDS = ['int', 'char', 'short', 'long', 'bool', 'signed', 'unsigned'];
 
+// Pre-compiled patterns — avoids recompiling the same regex on every line.
+const NATIVE_INTEGER_KEYWORD_PATTERNS: Array<[string, RegExp]> =
+    NATIVE_INTEGER_KEYWORDS.map((kw) => [kw, new RegExp(`\\b${kw}\\b`, 'g')] as [string, RegExp]);
+
 function checkNativeIntegerKeywords(
     stripped: string,
     lineIndex: number,
     diagnostics: vscode.Diagnostic[],
 ): void {
-    for (const kw of NATIVE_INTEGER_KEYWORDS) {
-        const regex = new RegExp(`\\b${kw}\\b`, 'g');
+    for (const [kw, pattern] of NATIVE_INTEGER_KEYWORD_PATTERNS) {
+        pattern.lastIndex = 0;
         let match: RegExpExecArray | null;
 
-        while ((match = regex.exec(stripped)) !== null) {
+        while ((match = pattern.exec(stripped)) !== null) {
             const col = match.index;
             const range = new vscode.Range(lineIndex, col, lineIndex, col + kw.length);
             const diagnostic = new vscode.Diagnostic(

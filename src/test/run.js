@@ -207,31 +207,37 @@ function collectDiagnostics(content) {
 
 // ── Copied logic (mirrors extension.ts exactly) ──────────────────────────
 
-function stripStringsAndComments(line) {
+// stripStringsAndCommentsStateful — handles // line comments, /* */ block comments,
+// and string/char literals. Accepts and returns block-comment state for multi-line use.
+function stripStringsAndCommentsStateful(line, inBlock) {
     let result = '';
     let i = 0;
     while (i < line.length) {
-        if (line[i] === '/' && line[i + 1] === '/') {
-            result += ' '.repeat(line.length - i);
-            break;
+        if (inBlock) {
+            if (line[i] === '*' && line[i + 1] === '/') { result += '  '; i += 2; inBlock = false; }
+            else { result += ' '; i++; }
+            continue;
         }
+        if (line[i] === '/' && line[i + 1] === '/') { result += ' '.repeat(line.length - i); break; }
+        if (line[i] === '/' && line[i + 1] === '*') { result += '  '; i += 2; inBlock = true; continue; }
         if (line[i] === '"') {
             const start = i; i++;
             while (i < line.length && line[i] !== '"') { if (line[i] === '\\') i++; i++; }
-            i++;
-            result += ' '.repeat(i - start);
-            continue;
+            i++; result += ' '.repeat(i - start); continue;
         }
         if (line[i] === "'") {
             const start = i; i++;
             while (i < line.length && line[i] !== "'") { if (line[i] === '\\') i++; i++; }
-            i++;
-            result += ' '.repeat(i - start);
-            continue;
+            i++; result += ' '.repeat(i - start); continue;
         }
         result += line[i]; i++;
     }
-    return result;
+    return { result, inBlockComment: inBlock };
+}
+
+// Single-line convenience wrapper (no block-comment state)
+function stripStringsAndComments(line) {
+    return stripStringsAndCommentsStateful(line, false).result;
 }
 
 function countBraceDelta(s) {
@@ -373,10 +379,13 @@ function diagsForText(content) {
     if (!looksLikeQpiContractText(content)) return diagnostics;
 
     let braceDepth = 0;
+    let inBlockComment = false;
 
     for (let li = 0; li < lines.length; li++) {
         const lineText = lines[li];
-        const stripped = stripStringsAndComments(lineText);
+        const { result: stripped, inBlockComment: nextState } =
+            stripStringsAndCommentsStateful(lineText, inBlockComment);
+        inBlockComment = nextState;
         const braceDepthAtLineStart = braceDepth;
 
         // QPI001 — #include qpi.h: Warning; any other #: Error
