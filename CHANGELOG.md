@@ -2,6 +2,24 @@
 
 All notable changes to this extension are documented here.
 
+## [1.0.0] - 2026-04-10
+
+### Added
+- Compatibility note in README: tested against qubic/core v1.286.0 (Epoch 208)
+
+### Fixed
+- Removed `.h` file extension claim — no longer hijacks C++ header files
+- Fixed `qpi-contract` snippet: now includes `: public ContractBase` inheritance
+- Fixed `qpi.transfer` return type (`void` → `sint64`) and description
+- Fixed test harness: both completion providers correctly captured
+- Fixed test harness: `#include "qpi.h"` correctly classified as Warning
+
+### Changed
+- Added 300 ms debounce to `onDidChangeTextDocument` for better performance
+- tmLanguage grammar now uses catch-all `qpi.\w+` pattern (all 40 methods highlighted)
+- tmLanguage type list completed: `Collection` casing fixed, added `HashMap`, `HashSet`,
+  `ContractState`, `DateAndTime`, `NoData`, `m256i`, `uint128`, iterator types
+
 ## [0.4.0] - 2026-04-10
 
 ### Added

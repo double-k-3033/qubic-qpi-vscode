@@ -2,6 +2,10 @@
 
 VS Code extension providing language support for **Qubic Smart Contracts** written with the Qubic Public Interface (QPI).
 
+> **Compatibility:** Tested against [qubic/core v1.286.0](https://github.com/qubic/core/releases/tag/v1.286.0) (Epoch 208, released 2026-04-08).
+> The QPI API coverage in this extension reflects `src/contract_core/qpi.h` at that release.
+> If Qubic core has been updated since then, check [GitHub Issue #5](https://github.com/AndyQus/qubic-qpi-vscode/issues/5) for the latest sync status.
+
 ---
 
 ## Features
