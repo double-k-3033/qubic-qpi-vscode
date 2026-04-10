@@ -51,9 +51,9 @@ const QPI_METHODS: QpiMethod[] = [
     },
     {
         name: 'burn',
-        signature: 'qpi.burn(amount: sint64)',
-        returns: 'void',
-        description: 'Burns `amount` QU permanently — removes them from circulation.',
+        signature: 'qpi.burn(amount: sint64, contractIndexBurnedFor: uint32 = 0)',
+        returns: 'sint64',
+        description: 'Burns `amount` QU permanently — removes them from circulation. Optional `contractIndexBurnedFor` defaults to 0 (this contract). Returns the amount burned or a negative value on error.',
     },
     {
         name: 'K12',
@@ -63,15 +63,15 @@ const QPI_METHODS: QpiMethod[] = [
     },
     {
         name: 'issueAsset',
-        signature: 'qpi.issueAsset(name: uint64, owner: id, unitOfMeasurement: sint64, numberOfDecimalPlaces: sint8)',
+        signature: 'qpi.issueAsset(name: uint64, numberOfDecimalPlaces: sint8, numberOfShares: sint64, unitOfMeasurement: uint64)',
         returns: 'sint64',
         description: 'Issues a new asset on the Qubic network. Returns the number of issued shares, or a negative value on failure.',
     },
     {
         name: 'transferShareOwnershipAndPossession',
-        signature: 'qpi.transferShareOwnershipAndPossession(assetName: uint64, issuer: id, owner: id, newOwner: id, numberOfShares: sint64)',
+        signature: 'qpi.transferShareOwnershipAndPossession(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, newOwnerAndPossessor: id)',
         returns: 'sint64',
-        description: 'Transfers ownership and possession of `numberOfShares` asset shares. Returns the number of transferred shares.',
+        description: 'Transfers ownership and possession of `numberOfShares` asset shares from `owner`/`possessor` to `newOwnerAndPossessor`. Returns the number of transferred shares.',
     },
     {
         name: 'tick',
@@ -88,8 +88,8 @@ const QPI_METHODS: QpiMethod[] = [
     {
         name: 'year',
         signature: 'qpi.year()',
-        returns: 'uint16',
-        description: 'Returns the **current UTC year** (e.g. 2025).',
+        returns: 'uint8',
+        description: 'Returns the **current UTC year** offset (e.g. 25 for 2025).',
     },
     {
         name: 'month',
@@ -121,6 +121,156 @@ const QPI_METHODS: QpiMethod[] = [
         returns: 'uint8',
         description: 'Returns the **current UTC second** (0–59).',
     },
+    {
+        name: 'arbitrator',
+        signature: 'qpi.arbitrator()',
+        returns: 'id',
+        description: 'Returns the `id` of the current **arbitrator**.',
+    },
+    {
+        name: 'computor',
+        signature: 'qpi.computor(computorIndex: uint16)',
+        returns: 'id',
+        description: 'Returns the `id` of the computor at the given index (0–675).',
+    },
+    {
+        name: 'dayOfWeek',
+        signature: 'qpi.dayOfWeek(year: uint8, month: uint8, day: uint8)',
+        returns: 'uint8',
+        description: 'Returns the day of week for the given date (0 = Wednesday, 1 = Thursday, ..., 6 = Tuesday).',
+    },
+    {
+        name: 'millisecond',
+        signature: 'qpi.millisecond()',
+        returns: 'uint16',
+        description: 'Returns the **current UTC millisecond** (0–999).',
+    },
+    {
+        name: 'getEntity',
+        signature: 'qpi.getEntity(id: id, entity: Entity)',
+        returns: 'bit',
+        description: 'Fills `entity` with the spectrum entry for the given `id`. Returns `1` if found, `0` otherwise.',
+    },
+    {
+        name: 'numberOfPossessedShares',
+        signature: 'qpi.numberOfPossessedShares(assetName: uint64, issuer: id, owner: id, possessor: id, ownershipManagingContractIndex: uint32, possessionManagingContractIndex: uint32)',
+        returns: 'sint64',
+        description: 'Returns the number of possessed shares matching all specified criteria.',
+    },
+    {
+        name: 'numberOfShares',
+        signature: 'qpi.numberOfShares(assetName: uint64, issuer: id)',
+        returns: 'sint64',
+        description: 'Returns the total number of issued shares for the given asset.',
+    },
+    {
+        name: 'isAssetIssued',
+        signature: 'qpi.isAssetIssued(issuer: id, assetName: uint64)',
+        returns: 'bit',
+        description: 'Returns `1` if the asset has been issued by the given issuer, `0` otherwise.',
+    },
+    {
+        name: 'isContractId',
+        signature: 'qpi.isContractId(id: id)',
+        returns: 'bit',
+        description: 'Returns `1` if the given `id` belongs to a smart contract.',
+    },
+    {
+        name: 'nextId',
+        signature: 'qpi.nextId(currentId: id)',
+        returns: 'id',
+        description: 'Returns the next `id` in the spectrum after `currentId`.',
+    },
+    {
+        name: 'prevId',
+        signature: 'qpi.prevId(currentId: id)',
+        returns: 'id',
+        description: 'Returns the previous `id` in the spectrum before `currentId`.',
+    },
+    {
+        name: 'ipoBidId',
+        signature: 'qpi.ipoBidId(ipoContractIndex: uint32, ipoBidIndex: uint32)',
+        returns: 'id',
+        description: 'Returns the `id` of the bidder at the given IPO bid index.',
+    },
+    {
+        name: 'ipoBidPrice',
+        signature: 'qpi.ipoBidPrice(ipoContractIndex: uint32, ipoBidIndex: uint32)',
+        returns: 'sint64',
+        description: 'Returns the bid price at the given IPO bid index.',
+    },
+    {
+        name: 'invocationReward',
+        signature: 'qpi.invocationReward()',
+        returns: 'sint64',
+        description: 'Returns the amount of QU sent with the current invocation.',
+    },
+    {
+        name: 'numberOfTickTransactions',
+        signature: 'qpi.numberOfTickTransactions()',
+        returns: 'sint32',
+        description: 'Returns the number of transactions in the current tick.',
+    },
+    {
+        name: 'now',
+        signature: 'qpi.now()',
+        returns: 'DateAndTime',
+        description: 'Returns the current date and time as a `DateAndTime` struct.',
+    },
+    {
+        name: 'getPrevSpectrumDigest',
+        signature: 'qpi.getPrevSpectrumDigest()',
+        returns: 'm256i',
+        description: 'Returns the spectrum digest of the previous tick.',
+    },
+    {
+        name: 'getPrevUniverseDigest',
+        signature: 'qpi.getPrevUniverseDigest()',
+        returns: 'm256i',
+        description: 'Returns the universe digest of the previous tick.',
+    },
+    {
+        name: 'getPrevComputerDigest',
+        signature: 'qpi.getPrevComputerDigest()',
+        returns: 'm256i',
+        description: 'Returns the computer digest of the previous tick.',
+    },
+    {
+        name: 'signatureValidity',
+        signature: 'qpi.signatureValidity(entity: id, digest: id, signature: Array<sint8, 64>)',
+        returns: 'bit',
+        description: 'Returns `1` if the signature is valid for the given entity and digest.',
+    },
+    {
+        name: 'queryFeeReserve',
+        signature: 'qpi.queryFeeReserve(contractIndex: uint32)',
+        returns: 'sint64',
+        description: 'Returns the fee reserve of the contract at `contractIndex` (0 = this contract).',
+    },
+    {
+        name: 'acquireShares',
+        signature: 'qpi.acquireShares(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, acquirerContractIndex: uint32)',
+        returns: 'sint64',
+        description: 'Acquires shares into the contract. Returns the number of shares acquired, or a negative value on error.',
+    },
+    {
+        name: 'releaseShares',
+        signature: 'qpi.releaseShares(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, releaserContractIndex: uint32)',
+        returns: 'sint64',
+        description: 'Releases shares from the contract. Returns the number of shares released, or a negative value on error.',
+    },
+    {
+        name: 'distributeDividends',
+        signature: 'qpi.distributeDividends(amountPerShare: sint64)',
+        returns: 'bit',
+        description: 'Distributes `amountPerShare` QU to every shareholder of this contract. Returns `1` on success.',
+    },
+    {
+        name: 'bidInIPO',
+        signature: 'qpi.bidInIPO(ipoContractIndex: uint32, price: sint64, quantity: uint32)',
+        returns: 'sint64',
+        description: 'Places an IPO bid. Returns the bid index or a negative value on error.',
+    },
 ];
 
 // Lookup map for hover provider
@@ -147,6 +297,177 @@ const QPI_KEYWORD_DOCS: Record<string, string> = {
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES:
         '**REGISTER_USER_FUNCTIONS_AND_PROCEDURES**\n\nRegistration block where all public procedures and functions must be registered using `REGISTER_USER_PROCEDURE` and `REGISTER_USER_FUNCTION` macros.',
 };
+
+// ---------------------------------------------------------------------------
+// QPI type completions — shown when typing type names
+// ---------------------------------------------------------------------------
+interface QpiType {
+    name: string;
+    description: string;
+}
+
+const QPI_TYPES: QpiType[] = [
+    // Core container types
+    { name: 'Array<T, L>', description: 'Fixed-size array of type T with L elements. Use instead of C++ arrays.' },
+    { name: 'HashMap<K, V, L>', description: 'Hash map with key type K, value type V, capacity L.' },
+    { name: 'HashSet<K, L>', description: 'Hash set with key type K, capacity L.' },
+    { name: 'Collection<T, L>', description: 'Ordered collection of type T with capacity L.' },
+    { name: 'ContractState<T, N>', description: 'Persistent contract state storage.' },
+
+    // Struct types
+    { name: 'Entity', description: 'Spectrum entry: contains `id publicKey`, `sint64 incomingAmount, outgoingAmount, numberOfIncomingTransfers, numberOfOutgoingTransfers, latestIncomingTransferTick, latestOutgoingTransferTick`.' },
+    { name: 'Asset', description: 'Asset descriptor with `issuer: id`, `assetName: uint64`.' },
+    { name: 'DateAndTime', description: 'Date/time struct: `year: uint8, month: uint8, day: uint8, hour: uint8, minute: uint8, second: uint8, millisecond: uint16`.' },
+    { name: 'NoData', description: 'Empty struct for procedures/functions with no input or output.' },
+
+    // Integer types
+    { name: 'sint8', description: 'Signed 8-bit integer.' },
+    { name: 'sint16', description: 'Signed 16-bit integer.' },
+    { name: 'sint32', description: 'Signed 32-bit integer.' },
+    { name: 'sint64', description: 'Signed 64-bit integer.' },
+    { name: 'uint8', description: 'Unsigned 8-bit integer.' },
+    { name: 'uint16', description: 'Unsigned 16-bit integer.' },
+    { name: 'uint32', description: 'Unsigned 32-bit integer.' },
+    { name: 'uint64', description: 'Unsigned 64-bit integer.' },
+    { name: 'uint128', description: '128-bit unsigned integer.' },
+    { name: 'id', description: 'A 256-bit Qubic identity (public key).' },
+    { name: 'bit', description: 'Single bit (0 or 1), used as boolean return type.' },
+    { name: 'm256i', description: '256-bit value, used for digests and hashes.' },
+
+    // Iterator types
+    { name: 'AssetIssuanceIterator', description: 'Iterates over all issued assets.' },
+    { name: 'AssetOwnershipIterator', description: 'Iterates over asset ownership records.' },
+    { name: 'AssetPossessionIterator', description: 'Iterates over asset possession records.' },
+
+    // Array typedefs — bit
+    { name: 'bit_2', description: 'Array of 2 bit values.' },
+    { name: 'bit_4', description: 'Array of 4 bit values.' },
+    { name: 'bit_8', description: 'Array of 8 bit values.' },
+    { name: 'bit_16', description: 'Array of 16 bit values.' },
+    { name: 'bit_32', description: 'Array of 32 bit values.' },
+    { name: 'bit_64', description: 'Array of 64 bit values.' },
+    { name: 'bit_128', description: 'Array of 128 bit values.' },
+    { name: 'bit_256', description: 'Array of 256 bit values.' },
+    { name: 'bit_512', description: 'Array of 512 bit values.' },
+    { name: 'bit_1024', description: 'Array of 1024 bit values.' },
+    { name: 'bit_2048', description: 'Array of 2048 bit values.' },
+    { name: 'bit_4096', description: 'Array of 4096 bit values.' },
+
+    // Array typedefs — sint8
+    { name: 'sint8_2', description: 'Array of 2 sint8 values.' },
+    { name: 'sint8_4', description: 'Array of 4 sint8 values.' },
+    { name: 'sint8_8', description: 'Array of 8 sint8 values.' },
+    // Array typedefs — sint16
+    { name: 'sint16_2', description: 'Array of 2 sint16 values.' },
+    { name: 'sint16_4', description: 'Array of 4 sint16 values.' },
+    { name: 'sint16_8', description: 'Array of 8 sint16 values.' },
+    // Array typedefs — sint32
+    { name: 'sint32_2', description: 'Array of 2 sint32 values.' },
+    { name: 'sint32_4', description: 'Array of 4 sint32 values.' },
+    { name: 'sint32_8', description: 'Array of 8 sint32 values.' },
+    // Array typedefs — sint64
+    { name: 'sint64_2', description: 'Array of 2 sint64 values.' },
+    { name: 'sint64_4', description: 'Array of 4 sint64 values.' },
+    { name: 'sint64_8', description: 'Array of 8 sint64 values.' },
+
+    // Array typedefs — uint8
+    { name: 'uint8_2', description: 'Array of 2 uint8 values.' },
+    { name: 'uint8_4', description: 'Array of 4 uint8 values.' },
+    { name: 'uint8_8', description: 'Array of 8 uint8 values.' },
+    // Array typedefs — uint16
+    { name: 'uint16_2', description: 'Array of 2 uint16 values.' },
+    { name: 'uint16_4', description: 'Array of 4 uint16 values.' },
+    { name: 'uint16_8', description: 'Array of 8 uint16 values.' },
+    // Array typedefs — uint32
+    { name: 'uint32_2', description: 'Array of 2 uint32 values.' },
+    { name: 'uint32_4', description: 'Array of 4 uint32 values.' },
+    { name: 'uint32_8', description: 'Array of 8 uint32 values.' },
+    // Array typedefs — uint64
+    { name: 'uint64_2', description: 'Array of 2 uint64 values.' },
+    { name: 'uint64_4', description: 'Array of 4 uint64 values.' },
+    { name: 'uint64_8', description: 'Array of 8 uint64 values.' },
+
+    // Array typedefs — id
+    { name: 'id_2', description: 'Array of 2 id values.' },
+    { name: 'id_4', description: 'Array of 4 id values.' },
+    { name: 'id_8', description: 'Array of 8 id values.' },
+];
+
+// Lookup map for type hover
+const QPI_TYPE_MAP = new Map<string, QpiType>(
+    QPI_TYPES.map((t) => [t.name.replace(/<.*>$/, ''), t]),
+);
+
+// ---------------------------------------------------------------------------
+// QPI constants — shown as constant completions
+// ---------------------------------------------------------------------------
+interface QpiConstant {
+    name: string;
+    detail: string;
+    description: string;
+}
+
+const QPI_CONSTANTS: QpiConstant[] = [
+    { name: 'NULL_ID', detail: 'id', description: 'The zero/null id. Equivalent to `id::zero()`.' },
+    { name: 'NULL_INDEX', detail: 'sint64 (-1)', description: 'Sentinel value `-1` indicating an invalid or not-found index.' },
+    { name: 'INVALID_AMOUNT', detail: 'sint64', description: 'Sentinel value for invalid QU amounts.' },
+    { name: 'NUMBER_OF_COMPUTORS', detail: '676', description: 'Total number of computors in the Qubic network.' },
+    { name: 'QUORUM', detail: '451', description: 'Minimum number of computors required for consensus.' },
+
+    // Letter constants for the ID() macro
+    { name: '_A', detail: 'letter constant', description: 'Letter constant `A` used with the `ID()` macro to construct ids.' },
+    { name: '_B', detail: 'letter constant', description: 'Letter constant `B` used with the `ID()` macro to construct ids.' },
+    { name: '_C', detail: 'letter constant', description: 'Letter constant `C` used with the `ID()` macro to construct ids.' },
+    { name: '_D', detail: 'letter constant', description: 'Letter constant `D` used with the `ID()` macro to construct ids.' },
+    { name: '_E', detail: 'letter constant', description: 'Letter constant `E` used with the `ID()` macro to construct ids.' },
+    { name: '_F', detail: 'letter constant', description: 'Letter constant `F` used with the `ID()` macro to construct ids.' },
+    { name: '_G', detail: 'letter constant', description: 'Letter constant `G` used with the `ID()` macro to construct ids.' },
+    { name: '_H', detail: 'letter constant', description: 'Letter constant `H` used with the `ID()` macro to construct ids.' },
+    { name: '_I', detail: 'letter constant', description: 'Letter constant `I` used with the `ID()` macro to construct ids.' },
+    { name: '_J', detail: 'letter constant', description: 'Letter constant `J` used with the `ID()` macro to construct ids.' },
+    { name: '_K', detail: 'letter constant', description: 'Letter constant `K` used with the `ID()` macro to construct ids.' },
+    { name: '_L', detail: 'letter constant', description: 'Letter constant `L` used with the `ID()` macro to construct ids.' },
+    { name: '_M', detail: 'letter constant', description: 'Letter constant `M` used with the `ID()` macro to construct ids.' },
+    { name: '_N', detail: 'letter constant', description: 'Letter constant `N` used with the `ID()` macro to construct ids.' },
+    { name: '_O', detail: 'letter constant', description: 'Letter constant `O` used with the `ID()` macro to construct ids.' },
+    { name: '_P', detail: 'letter constant', description: 'Letter constant `P` used with the `ID()` macro to construct ids.' },
+    { name: '_Q', detail: 'letter constant', description: 'Letter constant `Q` used with the `ID()` macro to construct ids.' },
+    { name: '_R', detail: 'letter constant', description: 'Letter constant `R` used with the `ID()` macro to construct ids.' },
+    { name: '_S', detail: 'letter constant', description: 'Letter constant `S` used with the `ID()` macro to construct ids.' },
+    { name: '_T', detail: 'letter constant', description: 'Letter constant `T` used with the `ID()` macro to construct ids.' },
+    { name: '_U', detail: 'letter constant', description: 'Letter constant `U` used with the `ID()` macro to construct ids.' },
+    { name: '_V', detail: 'letter constant', description: 'Letter constant `V` used with the `ID()` macro to construct ids.' },
+    { name: '_W', detail: 'letter constant', description: 'Letter constant `W` used with the `ID()` macro to construct ids.' },
+    { name: '_X', detail: 'letter constant', description: 'Letter constant `X` used with the `ID()` macro to construct ids.' },
+    { name: '_Y', detail: 'letter constant', description: 'Letter constant `Y` used with the `ID()` macro to construct ids.' },
+    { name: '_Z', detail: 'letter constant', description: 'Letter constant `Z` used with the `ID()` macro to construct ids.' },
+
+    // Month constants
+    { name: 'JANUARY', detail: '1', description: 'Month constant for January (1).' },
+    { name: 'FEBRUARY', detail: '2', description: 'Month constant for February (2).' },
+    { name: 'MARCH', detail: '3', description: 'Month constant for March (3).' },
+    { name: 'APRIL', detail: '4', description: 'Month constant for April (4).' },
+    { name: 'MAY', detail: '5', description: 'Month constant for May (5).' },
+    { name: 'JUNE', detail: '6', description: 'Month constant for June (6).' },
+    { name: 'JULY', detail: '7', description: 'Month constant for July (7).' },
+    { name: 'AUGUST', detail: '8', description: 'Month constant for August (8).' },
+    { name: 'SEPTEMBER', detail: '9', description: 'Month constant for September (9).' },
+    { name: 'OCTOBER', detail: '10', description: 'Month constant for October (10).' },
+    { name: 'NOVEMBER', detail: '11', description: 'Month constant for November (11).' },
+    { name: 'DECEMBER', detail: '12', description: 'Month constant for December (12).' },
+
+    // Day-of-week constants
+    { name: 'MONDAY', detail: 'day of week', description: 'Day-of-week constant for Monday.' },
+    { name: 'TUESDAY', detail: 'day of week', description: 'Day-of-week constant for Tuesday.' },
+    { name: 'WEDNESDAY', detail: 'day of week', description: 'Day-of-week constant for Wednesday.' },
+    { name: 'THURSDAY', detail: 'day of week', description: 'Day-of-week constant for Thursday.' },
+    { name: 'FRIDAY', detail: 'day of week', description: 'Day-of-week constant for Friday.' },
+    { name: 'SATURDAY', detail: 'day of week', description: 'Day-of-week constant for Saturday.' },
+    { name: 'SUNDAY', detail: 'day of week', description: 'Day-of-week constant for Sunday.' },
+];
+
+// Lookup map for constant hover
+const QPI_CONSTANT_MAP = new Map<string, QpiConstant>(QPI_CONSTANTS.map((c) => [c.name, c]));
 
 // ---------------------------------------------------------------------------
 // Diagnostic collection (reused across all document updates)
@@ -254,7 +575,48 @@ export function activate(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(completionProvider);
 
-    // --- Phase 2: Hover documentation ---
+    // --- IntelliSense — QPI types and constants (general, not qpi.* prefixed) ---
+    const typeConstCompletionProvider = vscode.languages.registerCompletionItemProvider(
+        [{ language: 'qpi' }, { language: 'cpp' }],
+        {
+            provideCompletionItems(
+                document: vscode.TextDocument,
+                _position: vscode.Position,
+            ): vscode.CompletionItem[] {
+                if (!isQpiDocument(document)) {
+                    return [];
+                }
+
+                const items: vscode.CompletionItem[] = [];
+
+                for (const t of QPI_TYPES) {
+                    const item = new vscode.CompletionItem(
+                        t.name,
+                        vscode.CompletionItemKind.Keyword,
+                    );
+                    item.detail = `QPI type — ${t.name}`;
+                    item.documentation = new vscode.MarkdownString(t.description);
+                    items.push(item);
+                }
+
+                for (const c of QPI_CONSTANTS) {
+                    const item = new vscode.CompletionItem(
+                        c.name,
+                        vscode.CompletionItemKind.Constant,
+                    );
+                    item.detail = c.detail;
+                    item.documentation = new vscode.MarkdownString(c.description);
+                    items.push(item);
+                }
+
+                return items;
+            },
+        },
+    );
+
+    context.subscriptions.push(typeConstCompletionProvider);
+
+    // --- Hover documentation ---
     const hoverProvider = vscode.languages.registerHoverProvider(
         [{ language: 'qpi' }, { language: 'cpp' }],
         {
@@ -286,6 +648,24 @@ export function activate(context: vscode.ExtensionContext): void {
                 const keywordDoc = QPI_KEYWORD_DOCS[word];
                 if (keywordDoc) {
                     return new vscode.Hover(new vscode.MarkdownString(keywordDoc));
+                }
+
+                // QPI type hover
+                const typeInfo = QPI_TYPE_MAP.get(word);
+                if (typeInfo) {
+                    const md = new vscode.MarkdownString();
+                    md.appendCodeblock(typeInfo.name, 'cpp');
+                    md.appendMarkdown('\n\n' + typeInfo.description);
+                    return new vscode.Hover(md);
+                }
+
+                // QPI constant hover
+                const constInfo = QPI_CONSTANT_MAP.get(word);
+                if (constInfo) {
+                    const md = new vscode.MarkdownString();
+                    md.appendCodeblock(`${constInfo.name}  // ${constInfo.detail}`, 'cpp');
+                    md.appendMarkdown('\n\n' + constInfo.description);
+                    return new vscode.Hover(md);
                 }
 
                 return undefined;
