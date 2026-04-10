@@ -46,8 +46,8 @@ const QPI_METHODS: QpiMethod[] = [
     {
         name: 'transfer',
         signature: 'qpi.transfer(dest: id, amount: sint64)',
-        returns: 'void',
-        description: 'Transfers `amount` QU from this contract to `dest`. Returns `false` if the balance is insufficient.',
+        returns: 'sint64',
+        description: 'Transfers `amount` QU from this contract to `dest`. Returns the transferred amount on success, or a negative value if the transfer failed (e.g. insufficient balance).',
     },
     {
         name: 'burn',
@@ -534,7 +534,13 @@ export function activate(context: vscode.ExtensionContext): void {
     // --- Lint on open, save, and change ---
     const lintOnOpen = vscode.workspace.onDidOpenTextDocument(lintDocument);
     const lintOnSave = vscode.workspace.onDidSaveTextDocument(lintDocument);
-    const lintOnChange = vscode.workspace.onDidChangeTextDocument((e) => lintDocument(e.document));
+    let lintTimeout: ReturnType<typeof setTimeout> | undefined;
+    const lintOnChange = vscode.workspace.onDidChangeTextDocument((e) => {
+        if (lintTimeout) {
+            clearTimeout(lintTimeout);
+        }
+        lintTimeout = setTimeout(() => lintDocument(e.document), 300);
+    });
 
     context.subscriptions.push(lintOnOpen, lintOnSave, lintOnChange);
 

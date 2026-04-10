@@ -91,7 +91,7 @@
       "patterns": [
         {
           "name": "storage.type.qpi",
-          "match": "\\b(id|sint64|uint64|sint32|uint32|sint16|uint16|sint8|uint8|bit|Array|BitArray|collection|Asset|Entity)\\b"
+          "match": "\\b(id|sint64|uint64|sint32|uint32|sint16|uint16|sint8|uint8|uint128|bit|Array|BitArray|Collection|HashMap|HashSet|ContractState|Asset|Entity|DateAndTime|NoData|m256i|AssetIssuanceIterator|AssetOwnershipIterator|AssetPossessionIterator)\\b"
         }
       ]
     },
@@ -99,8 +99,10 @@
       "comment": "QPI API functions accessible via the qpi object",
       "patterns": [
         {
-          "name": "support.function.qpi",
-          "match": "\\bqpi\\.(invocator|originator|transfer|burn|K12|issueAsset|transferShareOwnershipAndPossession|tick|epoch|year|month|day|hour|minute|second)\\b"
+          "match": "\\bqpi\\.(\\w+)",
+          "captures": {
+            "1": { "name": "support.function.qpi" }
+          }
         },
         {
           "name": "support.function.qpi",

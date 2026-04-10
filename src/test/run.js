@@ -136,15 +136,15 @@ function makeDocument(content) {
 }
 
 // Activate the extension with a dummy context so providers are registered
-let _completionProvider = null;
+let _completionProviders = [];
 let _hoverProvider      = null;
 
 const savedRegisterCompletion = languages.registerCompletionItemProvider;
 const savedRegisterHover      = languages.registerHoverProvider;
 
 languages.registerCompletionItemProvider = (sel, prov, trigger) => {
-    _completionProvider = prov;
-    return savedRegisterCompletion(sel, prov, trigger);
+    _completionProviders.push({ provider: prov, trigger });
+    return { dispose: () => {} };
 };
 languages.registerHoverProvider = (sel, prov) => {
     _hoverProvider = prov;
@@ -393,7 +393,7 @@ function diagsForText(content) {
             diagnostics.push({
                 code: 'QPI001',
                 line: li,
-                severity: isQpiHIncludeLine(stripped) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+                severity: isQpiHIncludeLine(lineText) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
             });
             braceDepth += countBraceDelta(stripped);
             continue;
@@ -662,7 +662,7 @@ section('stripStringsAndComments — helper function');
 // ── IntelliSense provider ────────────────────────────────────────────────────
 section('IntelliSense — completion provider');
 {
-    assert(_completionProvider !== null, 'Completion provider was registered');
+    assert(_completionProviders[0].provider !== null, 'Completion provider was registered');
 
     // Simulate: cursor after "qpi." in a QPI document
     // lineAt accepts either a line number OR a Position object (VS Code API)
@@ -677,7 +677,7 @@ section('IntelliSense — completion provider');
         },
     };
 
-    const items = _completionProvider.provideCompletionItems(qpiDoc, position);
+    const items = _completionProviders[0].provider.provideCompletionItems(qpiDoc, position);
     assert(Array.isArray(items) && items.length > 0, 'Returns completion items for qpi. trigger');
     assert(items.some(i => i.label === 'transfer'), 'qpi.transfer in completions');
     assert(items.some(i => i.label === 'invocator'), 'qpi.invocator in completions');
@@ -692,7 +692,7 @@ section('IntelliSense — completion provider');
         fileName: 'plain.h',
         lineAt: (_) => ({ text: 'qpi.' }),
     };
-    const noItems = _completionProvider.provideCompletionItems(plainDoc, position);
+    const noItems = _completionProviders[0].provider.provideCompletionItems(plainDoc, position);
     assert(noItems.length === 0, 'No completions for non-QPI file');
 }
 
