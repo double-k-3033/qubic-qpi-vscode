@@ -184,19 +184,107 @@ The `/` and `%` operators are prohibited in QPI contracts (e.g. division by zero
 The linter flags raw `/` and `%` but does **not** flag `div()` or `mod()` — they are the required QPI idioms.
 
 ### Supported QPI API (`qpi.*`)
+
+**Identity & Context**
 | Method | Description |
 |---|---|
-| `qpi.invocator()` | Identity of the direct caller |
-| `qpi.originator()` | Identity of the transaction originator |
-| `qpi.transfer(dest, amount)` | Transfer QU from contract to address |
-| `qpi.burn(amount)` | Burn QU permanently |
-| `qpi.K12(data)` | Qubic K12 hash function |
-| `qpi.issueAsset(...)` | Issue a new asset |
-| `qpi.transferShareOwnershipAndPossession(...)` | Transfer asset shares |
-| `qpi.tick()` | Current tick number |
-| `qpi.epoch()` | Current epoch number |
-| `qpi.year() / month() / day()` | Current UTC date parts |
-| `qpi.hour() / minute() / second()` | Current UTC time parts |
+| `invocator()` | Returns the `id` of the **direct caller** of this contract invocation. |
+| `originator()` | Returns the `id` of the **originator** of the transaction (the entity that signed it). |
+| `arbitrator()` | Returns the `id` of the current **arbitrator**. |
+| `computor(index: uint16)` | Returns the `id` of the computor at the given index (0–675). |
+| `isContractId(id: id)` | Returns `1` if the given `id` belongs to a smart contract. |
+
+**Time**
+| Method | Description |
+|---|---|
+| `tick()` | Returns the **current tick number** of the Qubic network. |
+| `epoch()` | Returns the **current epoch number** of the Qubic network. |
+| `year()` | Returns the **current UTC year** offset (e.g. 25 for 2025). |
+| `month()` | Returns the **current UTC month** (1–12). |
+| `day()` | Returns the **current UTC day of month** (1–31). |
+| `hour()` | Returns the **current UTC hour** (0–23). |
+| `minute()` | Returns the **current UTC minute** (0–59). |
+| `second()` | Returns the **current UTC second** (0–59). |
+| `millisecond()` | Returns the **current UTC millisecond** (0–999). |
+| `dayOfWeek(year: uint8, month: uint8, day: uint8)` | Returns the day of week for the given date (0 = Wednesday, ..., 6 = Tuesday). |
+| `now()` | Returns the current date and time as a `DateAndTime` struct. |
+
+**Balance & Transfer**
+| Method | Description |
+|---|---|
+| `transfer(dest: id, amount: sint64)` | Transfers `amount` QU from this contract to `dest`. Returns `false` if the balance is insufficient. |
+| `burn(amount: sint64, contractIndexBurnedFor: uint32 = 0)` | Burns `amount` QU permanently — removes them from circulation. Optional `contractIndexBurnedFor` defaults to 0 (this contract). Returns the amount burned or a negative value on error. |
+| `invocationReward()` | Returns the amount of QU sent with the current invocation. |
+| `queryFeeReserve(contractIndex: uint32)` | Returns the fee reserve of the contract at `contractIndex` (0 = this contract). |
+| `distributeDividends(amountPerShare: sint64)` | Distributes `amountPerShare` QU to every shareholder of this contract. Returns `1` on success. |
+
+**Hashing & Crypto**
+| Method | Description |
+|---|---|
+| `K12(data: T)` | Computes the **Qubic K12 hash** of `data` and returns the result as an `id`. |
+| `signatureValidity(entity: id, digest: id, signature: Array<sint8, 64>)` | Returns `1` if the signature is valid for the given entity and digest. |
+| `getPrevSpectrumDigest()` | Returns the spectrum digest of the previous tick. |
+| `getPrevUniverseDigest()` | Returns the universe digest of the previous tick. |
+| `getPrevComputerDigest()` | Returns the computer digest of the previous tick. |
+
+**Spectrum / Entities**
+| Method | Description |
+|---|---|
+| `getEntity(id: id, entity: Entity)` | Fills `entity` with the spectrum entry for the given `id`. Returns `1` if found, `0` otherwise. |
+| `nextId(currentId: id)` | Returns the next `id` in the spectrum after `currentId`. |
+| `prevId(currentId: id)` | Returns the previous `id` in the spectrum before `currentId`. |
+| `numberOfTickTransactions()` | Returns the number of transactions in the current tick. |
+
+**Assets**
+| Method | Description |
+|---|---|
+| `issueAsset(name: uint64, numberOfDecimalPlaces: sint8, numberOfShares: sint64, unitOfMeasurement: uint64)` | Issues a new asset on the Qubic network. Returns the number of issued shares, or a negative value on failure. |
+| `transferShareOwnershipAndPossession(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, newOwnerAndPossessor: id)` | Transfers ownership and possession of `numberOfShares` asset shares from `owner`/`possessor` to `newOwnerAndPossessor`. Returns the number of transferred shares. |
+| `numberOfPossessedShares(assetName: uint64, issuer: id, owner: id, possessor: id, ownershipManagingContractIndex: uint32, possessionManagingContractIndex: uint32)` | Returns the number of possessed shares matching all specified criteria. |
+| `numberOfShares(assetName: uint64, issuer: id)` | Returns the total number of issued shares for the given asset. |
+| `isAssetIssued(issuer: id, assetName: uint64)` | Returns `1` if the asset has been issued by the given issuer, `0` otherwise. |
+| `acquireShares(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, acquirerContractIndex: uint32)` | Acquires shares into the contract. Returns the number of shares acquired, or a negative value on error. |
+| `releaseShares(assetName: uint64, issuer: id, owner: id, possessor: id, numberOfShares: sint64, releaserContractIndex: uint32)` | Releases shares from the contract. Returns the number of shares released, or a negative value on error. |
+| `bidInIPO(ipoContractIndex: uint32, price: sint64, quantity: uint32)` | Places an IPO bid. Returns the bid index or a negative value on error. |
+| `ipoBidId(ipoContractIndex: uint32, ipoBidIndex: uint32)` | Returns the `id` of the bidder at the given IPO bid index. |
+| `ipoBidPrice(ipoContractIndex: uint32, ipoBidIndex: uint32)` | Returns the bid price at the given IPO bid index. |
+
+### QPI Types
+
+Common types used in QPI contracts:
+
+| Type | Description |
+|---|---|
+| `Array<T, L>` | Fixed-size array — use instead of C++ arrays |
+| `HashMap<K, V, L>` | Hash map with key K, value V, capacity L |
+| `HashSet<K, L>` | Hash set with key K, capacity L |
+| `Collection<T, L>` | Ordered collection with capacity L |
+| `ContractState<T, N>` | Persistent contract state storage |
+| `Entity` | Spectrum entry (public key + balance info) |
+| `Asset` | Asset descriptor (issuer id + asset name) |
+| `DateAndTime` | Date/time struct returned by `qpi.now()` |
+| `NoData` | Empty struct for procedures/functions with no I/O |
+| `id` | 256-bit identity / address |
+| `uint8` / `uint16` / `uint32` / `uint64` / `uint128` | Unsigned integer types |
+| `sint8` / `sint16` / `sint32` / `sint64` | Signed integer types |
+| `bit` | Single-bit boolean (0 or 1) |
+| `m256i` | 256-bit value for digests and hashes |
+| `Array typedefs` | `bit_2`…`bit_4096`, `sint8_2`…`sint64_8`, `uint8_2`…`uint64_8`, `id_2`/`id_4`/`id_8` |
+
+### QPI Constants
+
+Useful constants for QPI development:
+
+| Constant | Value | Description |
+|---|---|---|
+| `NULL_ID` | `id::zero()` | The zero/null identity |
+| `NULL_INDEX` | `-1` | Invalid / not-found index sentinel |
+| `NUMBER_OF_COMPUTORS` | `676` | Total computors in the network |
+| `QUORUM` | `451` | Minimum computors required for consensus |
+| `INVALID_AMOUNT` | — | Sentinel for invalid QU amounts |
+| `_A` – `_Z` | letter values | Used with `ID()` macro to build identities from letters |
+| `JANUARY` – `DECEMBER` | `1`–`12` | Month constants |
+| `MONDAY` – `SUNDAY` | — | Day-of-week constants |
 
 ---
 
@@ -235,6 +323,7 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 - [x] IntelliSense for all `qpi.*` functions
 - [x] Hover documentation
 - [x] Error squiggles (red underline for harder violations)
+- [x] Full QPI type and constant completions (Array, HashMap, Entity, NULL_ID, etc.)
 
 ### Phase 3 - Power
 - [ ] Dev Kit integration (deploy to testnet)
