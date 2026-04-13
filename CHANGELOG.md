@@ -2,6 +2,17 @@
 
 All notable changes to this extension are documented here.
 
+## [1.1.0] - 2026-04-13
+
+### Added
+- JSDoc-style contract metadata support (`@contract`, `@description`, `@author`, `@version`,
+  `@procedure`, `@function`, `@state`)
+- Hover documentation: hovering over the contract struct name shows the full metadata
+- QPI017 validation: Warning when `@procedure`/`@function` is declared in the doc-comment
+  but the corresponding `PUBLIC_PROCEDURE(X)` / `PUBLIC_FUNCTION(X)` is missing in the code
+- `qpi-contract-doc` snippet: inserts a pre-filled JSDoc metadata template
+- 5 new automated tests for QPI017 (63 tests total)
+
 ## [1.0.0] - 2026-04-10
 
 ### Added

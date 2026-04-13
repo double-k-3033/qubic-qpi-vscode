@@ -143,5 +143,22 @@
       "END_TICK"
     ],
     "description": "QPI BEGIN_TICK / END_TICK block — runs once per tick"
+  },
+
+  "QPI Contract Doc Comment": {
+    "prefix": "qpi-contract-doc",
+    "scope": "qpi,cpp",
+    "body": [
+      "/**",
+      " * @contract ${1:ContractName}",
+      " * @description ${2:Brief description of what this contract does}",
+      " * @author ${3:YourName}",
+      " * @version ${4:1}",
+      " * @procedure ${5:ProcedureName} — ${6:What this procedure does}",
+      " * @function ${7:FunctionName} — ${8:What this function returns}",
+      " * @state ${9:stateName} — ${10:What this state variable tracks}",
+      " */"
+    ],
+    "description": "JSDoc-style contract metadata block for AI coding agents and documentation"
   }
 }

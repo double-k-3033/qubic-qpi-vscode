@@ -30,6 +30,22 @@ interface QpiMethod {
     description: string;
 }
 
+interface ContractDocTag {
+    name: string;
+    description: string;
+}
+
+interface ContractDocMeta {
+    contract: string | undefined;
+    description: string | undefined;
+    author: string | undefined;
+    version: string | undefined;
+    procedures: ContractDocTag[];
+    functions: ContractDocTag[];
+    states: ContractDocTag[];
+    commentRange: vscode.Range;
+}
+
 const QPI_METHODS: QpiMethod[] = [
     {
         name: 'invocator',
@@ -475,6 +491,22 @@ const QPI_CONSTANT_MAP = new Map<string, QpiConstant>(QPI_CONSTANTS.map((c) => [
 let diagnosticCollection: vscode.DiagnosticCollection;
 
 // ---------------------------------------------------------------------------
+// Contract doc-comment metadata cache (keyed by document URI)
+// ---------------------------------------------------------------------------
+const docMetaCache = new Map<string, { version: number; meta: ContractDocMeta | undefined }>();
+
+function getContractDocMeta(document: vscode.TextDocument): ContractDocMeta | undefined {
+    const key = document.uri.toString();
+    const cached = docMetaCache.get(key);
+    if (cached && cached.version === document.version) {
+        return cached.meta;
+    }
+    const meta = parseContractDocComment(document.getText(), document);
+    docMetaCache.set(key, { version: document.version, meta });
+    return meta;
+}
+
+// ---------------------------------------------------------------------------
 // activate
 // ---------------------------------------------------------------------------
 export function activate(context: vscode.ExtensionContext): void {
@@ -674,6 +706,14 @@ export function activate(context: vscode.ExtensionContext): void {
                     return new vscode.Hover(md);
                 }
 
+                // Contract doc-comment hover — show metadata when hovering over the contract struct name
+                if (isQpiDocument(document)) {
+                    const meta = getContractDocMeta(document);
+                    if (meta && meta.contract && word === meta.contract) {
+                        return buildContractDocHover(meta);
+                    }
+                }
+
                 return undefined;
             },
         },
@@ -835,6 +875,7 @@ function lintDocument(document: vscode.TextDocument): void {
     // Uses strippedText so keywords inside comments are ignored.
     // ----------------------------------------------------------------
     validateContract(document, strippedText, diagnostics);
+    checkDocCommentCoverage(document, diagnostics);
 
     diagnosticCollection.set(document.uri, diagnostics);
 }
@@ -1639,6 +1680,214 @@ function checkUnregisteredEntrypoints(
         diagnostic.code = 'QPI012';
         diagnostics.push(diagnostic);
     }
+}
+
+// ---------------------------------------------------------------------------
+// parseContractDocComment — parses a /** ... */ JSDoc-style block above the
+// contract struct declaration and returns structured metadata.
+// ---------------------------------------------------------------------------
+function parseContractDocComment(
+    text: string,
+    document: vscode.TextDocument,
+): ContractDocMeta | undefined {
+    // Find QPI_CONTRACT_DECLARATION_REGEX match position
+    const contractMatch = QPI_CONTRACT_DECLARATION_REGEX.exec(stripStrings(stripAllComments(text)));
+    if (!contractMatch) return undefined;
+
+    // Find the /** ... */ block immediately before the struct declaration.
+    // We search in the raw text (before stripping) in the region up to the struct match.
+    const textBeforeStruct = text.slice(0, contractMatch.index);
+    // Match the LAST /** ... */ block before the struct
+    const docRegex = /\/\*\*([\s\S]*?)\*\//g;
+    let docMatch: RegExpExecArray | null;
+    let lastMatch: RegExpExecArray | null = null;
+    while ((docMatch = docRegex.exec(textBeforeStruct)) !== null) {
+        lastMatch = docMatch;
+    }
+
+    if (!lastMatch) return undefined;
+
+    // Parse the lines inside the doc-comment
+    const rawContent = lastMatch[1];
+    const lines = rawContent.split('\n').map(l => l.replace(/^\s*\*\s?/, '').trimEnd());
+
+    const meta: ContractDocMeta = {
+        contract: undefined,
+        description: undefined,
+        author: undefined,
+        version: undefined,
+        procedures: [],
+        functions: [],
+        states: [],
+        commentRange: new vscode.Range(
+            document.positionAt(lastMatch.index),
+            document.positionAt(lastMatch.index + lastMatch[0].length),
+        ),
+    };
+
+    let hasRecognizedTag = false;
+
+    for (const line of lines) {
+        const tagMatch = line.match(/^@(\w+)\s+(.*)/);
+        if (!tagMatch) continue;
+        const [, tag, rest] = tagMatch;
+
+        // Split on first em-dash or ' - ' to get name and description
+        const splitTag = (value: string): ContractDocTag => {
+            const sep = value.match(/\s+[—\-]\s+/);
+            if (sep && sep.index !== undefined) {
+                return {
+                    name: value.slice(0, sep.index).trim(),
+                    description: value.slice(sep.index + sep[0].length).trim(),
+                };
+            }
+            return { name: value.trim(), description: '' };
+        };
+
+        hasRecognizedTag = true;
+        switch (tag) {
+            case 'contract':    meta.contract = rest.trim(); break;
+            case 'description': meta.description = rest.trim(); break;
+            case 'author':      meta.author = rest.trim(); break;
+            case 'version':     meta.version = rest.trim(); break;
+            case 'procedure':   meta.procedures.push(splitTag(rest)); break;
+            case 'function':    meta.functions.push(splitTag(rest)); break;
+            case 'state':       meta.states.push(splitTag(rest)); break;
+        }
+    }
+
+    return hasRecognizedTag ? meta : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// buildContractDocHover — creates a Hover card for contract doc metadata
+// ---------------------------------------------------------------------------
+function buildContractDocHover(meta: ContractDocMeta): vscode.Hover {
+    const md = new vscode.MarkdownString();
+    md.isTrusted = true;
+
+    md.appendMarkdown(`## ${meta.contract ?? 'Contract'}\n\n`);
+
+    if (meta.description) {
+        md.appendMarkdown(`${meta.description}\n\n`);
+    }
+
+    const infoRows: string[] = [];
+    if (meta.author)  infoRows.push(`| **Author** | ${meta.author} |`);
+    if (meta.version) infoRows.push(`| **Version** | ${meta.version} |`);
+    if (infoRows.length > 0) {
+        md.appendMarkdown(`| | |\n|---|---|\n${infoRows.join('\n')}\n\n`);
+    }
+
+    if (meta.procedures.length > 0) {
+        md.appendMarkdown(`**Procedures**\n`);
+        for (const p of meta.procedures) {
+            md.appendMarkdown(p.description
+                ? `- \`${p.name}\` — ${p.description}\n`
+                : `- \`${p.name}\`\n`);
+        }
+        md.appendMarkdown('\n');
+    }
+
+    if (meta.functions.length > 0) {
+        md.appendMarkdown(`**Functions**\n`);
+        for (const f of meta.functions) {
+            md.appendMarkdown(f.description
+                ? `- \`${f.name}\` — ${f.description}\n`
+                : `- \`${f.name}\`\n`);
+        }
+        md.appendMarkdown('\n');
+    }
+
+    if (meta.states.length > 0) {
+        md.appendMarkdown(`**State**\n`);
+        for (const s of meta.states) {
+            md.appendMarkdown(s.description
+                ? `- \`${s.name}\` — ${s.description}\n`
+                : `- \`${s.name}\`\n`);
+        }
+    }
+
+    return new vscode.Hover(md);
+}
+
+// ---------------------------------------------------------------------------
+// checkDocCommentCoverage — QPI017
+// Validates that @procedure and @function tags in the doc-comment match
+// actual PUBLIC_PROCEDURE / PUBLIC_FUNCTION declarations in the contract body.
+// ---------------------------------------------------------------------------
+function checkDocCommentCoverage(
+    document: vscode.TextDocument,
+    diagnostics: vscode.Diagnostic[],
+): void {
+    const meta = getContractDocMeta(document);
+    if (!meta) return;
+
+    // Collect actually-defined procedure and function names from stripped text
+    const strippedText = stripAllComments(document.getText());
+    const declaredProcedures = new Set<string>();
+    const declaredFunctions = new Set<string>();
+    const declRegex = /\bPUBLIC_(PROCEDURE|FUNCTION)(?:_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = declRegex.exec(strippedText)) !== null) {
+        if (m[1] === 'PROCEDURE') {
+            declaredProcedures.add(m[2]);
+        } else {
+            declaredFunctions.add(m[2]);
+        }
+    }
+
+    const rawText = document.getText();
+
+    // Check @procedure tags
+    for (const tag of meta.procedures) {
+        if (!declaredProcedures.has(tag.name)) {
+            const tagPattern = new RegExp(`@procedure\\s+${escapeRegExp(tag.name)}\\b`);
+            const tagMatch = tagPattern.exec(rawText);
+            const range = tagMatch
+                ? new vscode.Range(
+                    document.positionAt(tagMatch.index),
+                    document.positionAt(tagMatch.index + tagMatch[0].length),
+                )
+                : meta.commentRange;
+
+            const diag = new vscode.Diagnostic(
+                range,
+                `'${tag.name}' is declared in @procedure but no PUBLIC_PROCEDURE(${tag.name}) was found in the contract body.`,
+                vscode.DiagnosticSeverity.Warning,
+            );
+            diag.source = 'qubic-qpi';
+            diag.code = 'QPI017';
+            diagnostics.push(diag);
+        }
+    }
+
+    // Check @function tags
+    for (const tag of meta.functions) {
+        if (!declaredFunctions.has(tag.name)) {
+            const tagPattern = new RegExp(`@function\\s+${escapeRegExp(tag.name)}\\b`);
+            const tagMatch = tagPattern.exec(rawText);
+            const range = tagMatch
+                ? new vscode.Range(
+                    document.positionAt(tagMatch.index),
+                    document.positionAt(tagMatch.index + tagMatch[0].length),
+                )
+                : meta.commentRange;
+
+            const diag = new vscode.Diagnostic(
+                range,
+                `'${tag.name}' is declared in @function but no PUBLIC_FUNCTION(${tag.name}) was found in the contract body.`,
+                vscode.DiagnosticSeverity.Warning,
+            );
+            diag.source = 'qubic-qpi';
+            diag.code = 'QPI017';
+            diagnostics.push(diag);
+        }
+    }
+}
+
+function escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ VS Code extension providing language support for **Qubic Smart Contracts** writt
 | Prefix | Description |
 |---|---|
 | `qpi-contract` | Full contract skeleton with state, I/O structs, epoch/tick hooks, and registration |
+| `qpi-contract-doc` | JSDoc metadata block (`@contract`, `@description`, `@procedure`, etc.) for AI agents |
 | `qpi-procedure` | `PUBLIC_PROCEDURE` block |
 | `qpi-function` | `PUBLIC_FUNCTION` block |
 | `qpi-procedure-locals` | `PUBLIC_PROCEDURE_WITH_LOCALS` block |
@@ -51,6 +52,7 @@ The extension analyses `.h` files that inherit from `ContractBase` and applies t
 | `QPI014` | Error | `float`, `double`, `union`, `const_cast`, `QpiContext` prohibited |
 | `QPI015` | Error | Native C/C++ `int` / `char` / `short` / `long` / `bool` / `signed` / `unsigned` — use QPI types |
 | `QPI016` | Error | `typedef` / `using` only in local scope; `using namespace QPI` allowed at file scope |
+| `QPI017` | Warning | `@procedure` / `@function` declared in doc-comment but not found in contract body |
 
 The linter and validator run on file open, save, and every keystroke.
 
@@ -94,6 +96,7 @@ Type one of the snippet prefixes and press `Tab`:
 | Prefix | What it inserts |
 |---|---|
 | `qpi-contract` | Complete contract skeleton |
+| `qpi-contract-doc` | JSDoc metadata block for AI coding agents |
 | `qpi-procedure` | `PUBLIC_PROCEDURE` block |
 | `qpi-function` | `PUBLIC_FUNCTION` block |
 | `qpi-procedure-locals` | `PUBLIC_PROCEDURE_WITH_LOCALS` block |
@@ -171,6 +174,32 @@ REGISTER_USER_FUNCTIONS_AND_PROCEDURES
 ```
 
 The index (`1`, `2`, …) is the call index used by clients to invoke the entry point. Each entry point needs a unique index.
+
+---
+
+## Contract Metadata for AI Coding Agents
+
+Add a JSDoc-style block directly above your contract struct to document it for AI coding agents (Copilot, Cursor, Claude, etc.) and developers:
+
+```cpp
+/**
+ * @contract TransferContract
+ * @description Handles peer-to-peer QU transfers with optional escrow
+ * @author AndyQus
+ * @version 1
+ * @procedure Transfer — Transfers QU from caller to recipient
+ * @procedure Escrow — Holds QU in escrow until release condition is met
+ * @function GetBalance — Returns current contract balance
+ * @state transferCount — Number of successful transfers
+ */
+struct TransferContract : public ContractBase {
+```
+
+Use the `qpi-contract-doc` snippet to insert a pre-filled template.
+
+**Hover documentation:** Hovering over the contract struct name shows the full metadata inline.
+
+**QPI017 validation:** A Warning is emitted if a `@procedure` or `@function` is declared in the doc-comment but the corresponding `PUBLIC_PROCEDURE(X)` / `PUBLIC_FUNCTION(X)` is not found in the contract body.
 
 ---
 
@@ -328,6 +357,12 @@ Install the `.vsix` via *Extensions: Install from VSIX* in VS Code.
 - [x] Hover documentation
 - [x] Error squiggles (red underline for harder violations)
 - [x] Full QPI type and constant completions (Array, HashMap, Entity, NULL_ID, etc.)
+
+### Phase 2.5 - AI Agent Support
+- [x] JSDoc-style contract metadata (`@contract`, `@description`, `@procedure`, `@function`, `@state`)
+- [x] Hover documentation from doc-comment metadata
+- [x] QPI017 — warning when `@procedure`/`@function` declared but missing from code
+- [x] `qpi-contract-doc` snippet
 
 ### Phase 3 - Power
 - [ ] Dev Kit integration (deploy to testnet)

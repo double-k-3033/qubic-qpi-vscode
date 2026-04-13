@@ -463,6 +463,72 @@ function diagsForText(content) {
         }
     }
 
+    // QPI017 — doc-comment @procedure / @function coverage
+    {
+        // Parse the doc-comment from the raw (not stripped) content
+        const contractMatch = QPI_CONTRACT_DECLARATION_REGEX.exec(stripStringsGate(stripAllCommentsGate(content)));
+        if (contractMatch) {
+            const textBeforeStruct = content.slice(0, contractMatch.index);
+            const docRegex = /\/\*\*([\s\S]*?)\*\//g;
+            let docMatch;
+            let lastDocMatch = null;
+            while ((docMatch = docRegex.exec(textBeforeStruct)) !== null) {
+                lastDocMatch = docMatch;
+            }
+
+            if (lastDocMatch) {
+                const rawContent = lastDocMatch[1];
+                const docLines = rawContent.split('\n').map(l => l.replace(/^\s*\*\s?/, '').trimEnd());
+
+                const docProcedures = [];
+                const docFunctions = [];
+                let hasRecognizedTag = false;
+
+                for (const line of docLines) {
+                    const tagMatch = line.match(/^@(\w+)\s+(.*)/);
+                    if (!tagMatch) continue;
+                    const [, tag, rest] = tagMatch;
+
+                    const splitTag = (value) => {
+                        const sep = value.match(/\s+[—\-]\s+/);
+                        if (sep && sep.index !== undefined) {
+                            return { name: value.slice(0, sep.index).trim() };
+                        }
+                        return { name: value.trim() };
+                    };
+
+                    hasRecognizedTag = true;
+                    if (tag === 'procedure') docProcedures.push(splitTag(rest));
+                    else if (tag === 'function') docFunctions.push(splitTag(rest));
+                }
+
+                if (hasRecognizedTag) {
+                    // Collect declared procedures/functions from stripped text
+                    const stripped017 = stripAllCommentsGate(content);
+                    const declProcs = new Set();
+                    const declFuncs = new Set();
+                    const declRe017 = /\bPUBLIC_(PROCEDURE|FUNCTION)(?:_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/g;
+                    let m017;
+                    while ((m017 = declRe017.exec(stripped017)) !== null) {
+                        if (m017[1] === 'PROCEDURE') declProcs.add(m017[2]);
+                        else declFuncs.add(m017[2]);
+                    }
+
+                    for (const tag of docProcedures) {
+                        if (!declProcs.has(tag.name)) {
+                            diagnostics.push({ code: 'QPI017', line: 0, severity: DiagnosticSeverity.Warning });
+                        }
+                    }
+                    for (const tag of docFunctions) {
+                        if (!declFuncs.has(tag.name)) {
+                            diagnostics.push({ code: 'QPI017', line: 0, severity: DiagnosticSeverity.Warning });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return diagnostics;
 }
 
@@ -731,6 +797,70 @@ section('Hover — hover provider');
     };
     const noHover = _hoverProvider.provideHover(plainDoc, { line: 0, character: 0 });
     assert(noHover === undefined, 'No hover for non-QPI file');
+}
+
+// ── QPI017 — doc-comment procedure/function coverage ─────────────────────
+section('QPI017 — doc-comment procedure/function coverage');
+{
+    // @procedure declared but missing PUBLIC_PROCEDURE
+    const docWithMismatch = `/**
+ * @contract MyContract
+ * @procedure Transfer — Transfers QU
+ */
+struct MyContract : public ContractBase {
+PUBLIC_PROCEDURE(Foo) { }
+REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_PROCEDURE(Foo, 1); }
+BEGIN_EPOCH { } END_EPOCH
+BEGIN_TICK { } END_TICK
+}`;
+    assert(hasDiag(diagsForText(docWithMismatch), 'QPI017'),
+        '@procedure Transfer declared but PUBLIC_PROCEDURE(Transfer) missing → QPI017');
+
+    // No QPI017 when procedure matches
+    const docOk = `/**
+ * @contract MyContract
+ * @procedure Transfer — Transfers QU
+ */
+struct MyContract : public ContractBase {
+PUBLIC_PROCEDURE(Transfer) { }
+REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_PROCEDURE(Transfer, 1); }
+BEGIN_EPOCH { } END_EPOCH
+BEGIN_TICK { } END_TICK
+}`;
+    assert(!hasDiag(diagsForText(docOk), 'QPI017'),
+        '@procedure Transfer with matching PUBLIC_PROCEDURE → no QPI017');
+
+    // @function declared but missing PUBLIC_FUNCTION
+    const docFuncMismatch = `/**
+ * @contract MyContract
+ * @function GetBalance — Returns balance
+ */
+struct MyContract : public ContractBase {
+PUBLIC_PROCEDURE(Foo) { }
+REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_PROCEDURE(Foo, 1); }
+BEGIN_EPOCH { } END_EPOCH
+BEGIN_TICK { } END_TICK
+}`;
+    assert(hasDiag(diagsForText(docFuncMismatch), 'QPI017'),
+        '@function GetBalance declared but PUBLIC_FUNCTION(GetBalance) missing → QPI017');
+
+    // No QPI017 when function matches
+    const docFuncOk = `/**
+ * @contract MyContract
+ * @function GetBalance — Returns balance
+ */
+struct MyContract : public ContractBase {
+PUBLIC_FUNCTION(GetBalance) { }
+REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(GetBalance, 1); }
+BEGIN_EPOCH { } END_EPOCH
+BEGIN_TICK { } END_TICK
+}`;
+    assert(!hasDiag(diagsForText(docFuncOk), 'QPI017'),
+        '@function GetBalance with matching PUBLIC_FUNCTION → no QPI017');
+
+    // No doc comment at all → no QPI017
+    assert(!hasDiag(diagsForText(ANCHOR), 'QPI017'),
+        'No doc comment → no QPI017');
 }
 
 // ---------------------------------------------------------------------------
